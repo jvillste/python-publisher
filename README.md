@@ -183,6 +183,24 @@ the `.py` suffix, and any leading directory is ignored, so `?game=Klikki`
 also works. If no game matches, the page loads without running anything
 and says so in the header.
 
+### Full screen mode
+
+The *⤢ Full screen* button in the sidebar (or `&fullscreen=1` in the
+address) hides everything but the canvas and scales the graphics to fill
+the browser tab while keeping its 600 × 400 aspect ratio — no stretching,
+letterboxing keeps the proportions. Click *Exit full screen*, the button
+in the top left corner of the canvas, or press Escape to return to the
+normal layout. The state lives in the URL, so refreshing a full screen
+game — including the automatic reload after a rebuild — stays full
+screen:
+
+```sh
+http://localhost:8000/index.html?game=klikkipeli&fullscreen=1
+```
+
+Text games keep their answer box visible, floating over the bottom of
+the full screen canvas, so `input()` games remain playable there too.
+
 ## Tests
 
 ```sh

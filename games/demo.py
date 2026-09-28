@@ -10,7 +10,7 @@ def piirra():
     screen.circle(paikka[0], paikka[1], 10, "#facc15")
 
 def paivita(aika_ms):
-    paikka[0] = math.sin(aika_ms / 300) * 200 + 300
+    paikka[0] = math.sin(aika_ms / 600) * screen.width / 2 + ( screen.width / 2 )
     piirra()
 
 screen.on_frame(paivita)

@@ -134,6 +134,73 @@
     overflow: hidden;
   }
   canvas { display: block; max-width: 100%; }
+  #exitFullscreenButton {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid #94a3b8;
+    background: rgba(2, 6, 23, 0.75);
+    color: #e2e8f0;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* Full screen mode: the canvas fills the browser tab while keeping its
+     aspect ratio, and everything else is hidden.  The aside is display:
+     none, so it no longer occupies the first grid column — the column
+     template must change too, or main collapses into a 0px column. */
+  body.fullscreen { overflow: hidden; }
+  body.fullscreen > header,
+  body.fullscreen #layout > aside,
+  body.fullscreen #tabs { display: none; }
+  body.fullscreen #layout {
+    grid-template-columns: 1fr;
+    height: 100vh;
+    min-height: 100vh;
+  }
+  body.fullscreen main {
+    padding: 0;
+    min-width: 0;
+    display: block;
+  }
+  body.fullscreen #playTab { display: block; }
+  body.fullscreen #playArea {
+    display: block;
+    flex-wrap: nowrap;
+    height: 100vh;
+  }
+  body.fullscreen #canvasBox {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0;
+  }
+  /* Scale up to the viewport but never past it; both constraints
+     together preserve the canvas aspect ratio. */
+  body.fullscreen #canvas {
+    max-width: 100vw;
+    max-height: 100vh;
+    width: auto;
+    height: auto;
+  }
+  /* Text games keep their answer box, floating over the canvas. */
+  body.fullscreen #terminalColumn {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 10;
+    width: min(480px, 90vw);
+  }
+  body.fullscreen #terminal { display: none; }
+  body.fullscreen #inputRow { margin-top: 0; }
   .output { color: #e2e8f0; }
   .prompt { color: #7dd3fc; }
   .answer { color: #fde047; }
@@ -164,6 +231,7 @@
     <nav id="gameList"></nav>
     <button id="runButton" disabled>&#9654; Run / Restart</button>
     <button id="stopButton" hidden>&#9632; Stop</button>
+    <button id="fullscreenButton" hidden>&#9974; Full screen</button>
     <p class="hint">Type your answers into the text box under the terminal and
     press Enter. Press Stop to end a game that never ends on its own.</p>
     <p class="hint" id="fallbackNotice" hidden>This page is opened without
@@ -186,7 +254,7 @@
             <button id="inputSend" type="submit">Send</button>
           </form>
         </div>
-        <div id="canvasBox"><canvas id="canvas" width="600" height="400"></canvas></div>
+        <div id="canvasBox"><canvas id="canvas" width="600" height="400"></canvas><button id="exitFullscreenButton" hidden>Exit full screen</button></div>
       </div>
     </section>
     <section id="sourceTab" hidden>
@@ -219,6 +287,8 @@ const playTabButton = document.getElementById("playTabButton");
 const sourceTabButton = document.getElementById("sourceTabButton");
 const inputRow = document.getElementById("inputRow");
 const inputBox = document.getElementById("inputBox");
+const fullscreenButton = document.getElementById("fullscreenButton");
+const exitFullscreenButton = document.getElementById("exitFullscreenButton");
 
 let selectedGameId = null;
 
@@ -684,6 +754,58 @@ function updateGameQuery(id) {
   }
 }
 
+function fullscreenFromQuery() {
+  return new URLSearchParams(window.location.search).get("fullscreen") === "1";
+}
+
+function updateFullscreenQuery(active) {
+  /* Keep ?fullscreen=1 in the address so that a refresh (for example
+     after an automatic reload following a rebuild) restores full screen. */
+  try {
+    const url = new URL(window.location.href);
+    if (active) {
+      url.searchParams.set("fullscreen", "1");
+    } else {
+      url.searchParams.delete("fullscreen");
+    }
+    window.history.replaceState(null, "", url);
+  } catch (error) {
+    /* The address cannot be rewritten in this context; full screen
+       still works, it just loses the deep link. */
+  }
+}
+
+function setFullscreen(active) {
+  document.body.classList.toggle("fullscreen", active);
+  fullscreenButton.hidden = active;
+  exitFullscreenButton.hidden = !active;
+  updateFullscreenQuery(active);
+  updateFullscreenCanvasSize();
+  if (active && runtime.pendingInput) inputBox.focus();
+}
+
+/* CSS alone cannot scale the canvas up while keeping its aspect ratio
+   (the two axes are constrained independently), so compute the largest
+   600 x 400 fitting into the browser tab in JavaScript. */
+function updateFullscreenCanvasSize() {
+  const factor = document.body.classList.contains("fullscreen") ? 1 : 0;
+  const scale = Math.min(
+    window.innerWidth / canvas.width,
+    window.innerHeight / canvas.height
+  ) * factor;
+  canvas.style.width = scale > 0 ? Math.floor(canvas.width * scale) + "px" : "";
+  canvas.style.height = scale > 0 ? Math.floor(canvas.height * scale) + "px" : "";
+}
+window.addEventListener("resize", updateFullscreenCanvasSize);
+
+fullscreenButton.addEventListener("click", () => setFullscreen(true));
+exitFullscreenButton.addEventListener("click", () => setFullscreen(false));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("fullscreen")) {
+    setFullscreen(false);
+  }
+});
+
 function reloadWhenRebuilt() {
   /* While the page is open, ask the server for a fresh index.html every
      second and compare the build stamp it was built with.  When build.py
@@ -750,6 +872,8 @@ if (runtime === workerRuntime) {
 } else {
   fallbackNotice.hidden = false;
 }
+fullscreenButton.hidden = false;
+if (fullscreenFromQuery()) setFullscreen(true);
 runtime.start();
 reloadWhenRebuilt();
 </script>
