@@ -202,6 +202,7 @@ const GAMES = __GAMES_JSON__;
 const GAME_RUNTIME_PY = __GAME_RUNTIME_PY__;
 const GAME_WORKER_JS = __GAME_WORKER_JS__;
 const PYODIDE_INDEX_URL = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
+const BUILD_STAMP = __BUILD_STAMP__;
 
 const terminal = document.getElementById("terminal");
 const canvas = document.getElementById("canvas");
@@ -683,6 +684,28 @@ function updateGameQuery(id) {
   }
 }
 
+function reloadWhenRebuilt() {
+  /* While the page is open, ask the server for a fresh index.html every
+     second and compare the build stamp it was built with.  When build.py
+     --watch has written a new build, reload the page so the running game
+     restarts with the new source; the ?game= query re-runs it. */
+  const pollInterval = 1000;
+  window.setTimeout(async () => {
+    try {
+      const response = await fetch(window.location.href, { cache: "no-store" });
+      const text = await response.text();
+      const match = text.match(/const BUILD_STAMP = "([^"]*)";/);
+      if (match && match[1] !== BUILD_STAMP) {
+        window.location.reload();
+        return;
+      }
+    } catch (error) {
+      /* Server not reachable (or page opened from disk) — just try again. */
+    }
+    reloadWhenRebuilt();
+    }, pollInterval);
+}
+
 function gameFromQuery() {
   const wanted = new URLSearchParams(window.location.search).get("game");
   if (!wanted) return null;
@@ -728,6 +751,7 @@ if (runtime === workerRuntime) {
   fallbackNotice.hidden = false;
 }
 runtime.start();
+reloadWhenRebuilt();
 </script>
 </body>
 </html>

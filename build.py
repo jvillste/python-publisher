@@ -9,11 +9,19 @@ are embedded in the page.
 
 Usage:
     python3 build.py [games_directory] [output_file]
+    python3 build.py --watch [games_directory] [output_file]
+    python3 build.py --watch [games_directory] [output_file]
 
 Defaults: games_directory = "games", output_file = "index.html".
 
 To publish a new game, drop a ``*.py`` file into the games directory and
-run this script again.
+run this script again.  With ``--watch`` the script keeps running and
+rebuilds the page whenever a source file changes, and the finished page
+notices the new build and reloads itself, so a browser refresh is not
+needed while developing.  With ``--watch`` the script keeps running and
+rebuilds the page whenever a source file changes, and the finished page
+notices the new build and reloads itself, so a browser refresh is not
+needed while developing.
 """
 
 from __future__ import annotations
@@ -21,6 +29,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -31,6 +40,8 @@ WORKER_FILE = PROJECT_DIR / "runtime" / "game_worker.js"
 GAMES_JSON_MARKER = "__GAMES_JSON__"
 RUNTIME_PY_MARKER = "__GAME_RUNTIME_PY__"
 WORKER_JS_MARKER = "__GAME_WORKER_JS__"
+BUILD_STAMP_MARKER = "__BUILD_STAMP__"
+WATCH_POLL_SECONDS = 0.5
 
 def extract_title(source: str, filename: Path) -> str:
     """Return a display title for one game source file.
@@ -90,19 +101,75 @@ def build_page(
     worker_source: str,
 ) -> str:
     """Fill the placeholders of the HTML template and return the page."""
-    for marker in (GAMES_JSON_MARKER, RUNTIME_PY_MARKER, WORKER_JS_MARKER):
+    for marker in (GAMES_JSON_MARKER, RUNTIME_PY_MARKER, WORKER_JS_MARKER, BUILD_STAMP_MARKER):
         if marker not in template_text:
             raise ValueError(f"template is missing the {marker} marker")
     page = template_text.replace(GAMES_JSON_MARKER, json_for_script(games))
     page = page.replace(RUNTIME_PY_MARKER, json_for_script(runtime_source))
     page = page.replace(WORKER_JS_MARKER, json_for_script(worker_source))
+    page = page.replace(BUILD_STAMP_MARKER, json_for_script(str(time.time_ns())))
     return page
+
+
+def newest_mtime(paths: list[Path]) -> float:
+    """Return the newest modification time of the paths, 0.0 for missing ones."""
+    newest = 0.0
+    for path in paths:
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
+def watch_build(games_directory: Path, output_file: Path) -> None:
+    """Rebuild the page whenever a source file changes, until interrupted.
+
+    A failed build (unreadable file, broken game) keeps the previous page
+    on disk instead of clobbering it with a broken one.
+    """
+    last_stamp = 0.0
+    print(f"Watching {games_directory} for changes — press Ctrl+C to stop.")
+    while True:
+        time.sleep(WATCH_POLL_SECONDS)
+        # Re-list the games every round so that newly added files are
+        # picked up too.
+        watched = [
+            TEMPLATE_FILE,
+            RUNTIME_FILE,
+            WORKER_FILE,
+            *sorted(games_directory.glob("*.py")),
+        ]
+        stamp = newest_mtime(watched)
+        if stamp == last_stamp:
+            continue
+        last_stamp = stamp
+        try:
+            games = collect_games(games_directory)
+            page = build_page(
+                games,
+                TEMPLATE_FILE.read_text(encoding="utf-8"),
+                RUNTIME_FILE.read_text(encoding="utf-8"),
+                WORKER_FILE.read_text(encoding="utf-8"),
+            )
+        except (OSError, ValueError) as error:
+            print(f"build failed, keeping the previous page: {error}")
+            continue
+        output_file.write_text(page, encoding="utf-8")
+        titles = ", ".join(game["title"] for game in games)
+        changed_at = time.strftime("%H:%M:%S", time.localtime(stamp))
+        print(f"[{changed_at}] rebuilt {output_file}: {titles}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("games_directory", nargs="?", default="games")
     parser.add_argument("output_file", nargs="?", default="index.html")
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="keep running and rebuild whenever a source file changes",
+    )
     arguments = parser.parse_args()
 
     games_directory = Path(arguments.games_directory)
@@ -119,6 +186,11 @@ def main() -> None:
     Path(arguments.output_file).write_text(page, encoding="utf-8")
     titles = ", ".join(game["title"] for game in games)
     print(f"Wrote {arguments.output_file} with {len(games)} games: {titles}")
+    if arguments.watch:
+        try:
+            watch_build(games_directory, Path(arguments.output_file))
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

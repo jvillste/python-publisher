@@ -10,6 +10,7 @@ TEMPLATE = """<html><script>
 const GAMES = __GAMES_JSON__;
 const RUNTIME = __GAME_RUNTIME_PY__;
 const WORKER = __GAME_WORKER_JS__;
+const BUILD_STAMP = __BUILD_STAMP__;
 </script></html>
 """
 
@@ -73,6 +74,7 @@ class TestBuildPage(unittest.TestCase):
         self.assertNotIn(build.GAMES_JSON_MARKER, page)
         self.assertNotIn(build.RUNTIME_PY_MARKER, page)
         self.assertNotIn(build.WORKER_JS_MARKER, page)
+        self.assertNotIn(build.BUILD_STAMP_MARKER, page)
         self.assertIn("print(1)", page)
         self.assertIn("def run_game(): pass", page)
         self.assertIn("onmessage = null", page)

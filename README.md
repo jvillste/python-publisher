@@ -141,7 +141,8 @@ screen.clear("black")
   interrupted gently; pressing Stop rebuilds the Python runtime, which takes
   a few seconds.
 - The games are embedded at build time; editing a `.py` file requires
-  running `python3 build.py` again.
+  running `python3 build.py` again — or keeping `python3 build.py
+  --watch` running, which also reloads the open page automatically.
 
 ## Developing a game
 
@@ -155,6 +156,27 @@ development cycle is:
 2. Edit the game source.
 3. Run `python3 build.py`.
 4. Refresh the browser tab — the same game starts with the new source.
+
+### No-refresh development with `--watch`
+
+`python3 build.py --watch` stays running and rebuilds `index.html` a
+fraction of a second after a source file changes. The open page notices
+the new build on its own (it polls for a fresh copy once a second and
+compares build stamps) and reloads itself, so step 4 above disappears:
+
+```sh
+python3 serve.py &            # terminal 1: serve with the right headers
+python3 build.py --watch      # terminal 2: rebuild on every save
+# open http://localhost:8000/index.html?game=klikkipeli.py
+# → edit the game, save, and the page restarts it with the new source
+```
+
+The stamp lives in every generated page, so the automatic reload works
+for any server that does not cache aggressively (the included `serve.py`
+sends `Cache-Control: no-store`). When the page is opened from disk
+there is nothing to poll, so there the page still waits for a manual
+refresh. A build that fails (for example a game with a syntax error)
+keeps the previous page on disk and the watch keeps running.
 
 The file name in the query is matched case-insensitively, with or without
 the `.py` suffix, and any leading directory is ignored, so `?game=Klikki`
