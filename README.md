@@ -143,6 +143,24 @@ screen.clear("black")
 - The games are embedded at build time; editing a `.py` file requires
   running `python3 build.py` again.
 
+## Developing a game
+
+The page accepts the game to run as a query string argument, for example
+`http://localhost:8000/index.html?game=klikkipeli.py`. The game is
+selected and started automatically when the page loads, so the usual
+development cycle is:
+
+1. Open the page with `?game=<your game>.py` once (clicking a game in the
+   list also puts `?game=<file>` into the address).
+2. Edit the game source.
+3. Run `python3 build.py`.
+4. Refresh the browser tab — the same game starts with the new source.
+
+The file name in the query is matched case-insensitively, with or without
+the `.py` suffix, and any leading directory is ignored, so `?game=Klikki`
+also works. If no game matches, the page loads without running anything
+and says so in the header.
+
 ## Tests
 
 ```sh

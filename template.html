@@ -670,8 +670,38 @@ function showTab(name) {
   sourceTabButton.classList.toggle("active", name === "source");
 }
 
+function updateGameQuery(id) {
+  /* Keep ?game=<file> in the address so that refreshing the page after a
+     rebuild restarts the same game with the new source. */
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("game", id);
+    window.history.replaceState(null, "", url);
+  } catch (error) {
+    /* The address cannot be rewritten in this context; the page still
+       works, it just loses the deep link. */
+  }
+}
+
+function gameFromQuery() {
+  const wanted = new URLSearchParams(window.location.search).get("game");
+  if (!wanted) return null;
+  const name = wanted.trim().toLowerCase().replace(/^.*[\\/]/, "");
+  const stem = name.replace(/\.py$/, "");
+  const game = GAMES.find((candidate) => {
+    const id = candidate.id.toLowerCase();
+    const filename = candidate.filename.toLowerCase();
+    return id === name || filename === name || id === stem || filename === stem;
+  });
+  if (!game) {
+    loadStatus.textContent = `No game called "${wanted}" in this build.`;
+  }
+  return game ?? null;
+}
+
 function selectGame(id) {
   selectedGameId = id;
+  updateGameQuery(id);
   const game = selectedGame();
   for (let index = 0; index < gameList.children.length; index += 1) {
     gameList.children[index].classList.toggle("active", GAMES[index].id === id);
@@ -690,6 +720,8 @@ runButton.addEventListener("click", () => {
 stopButton.addEventListener("click", () => runtime.stop());
 
 buildGameList();
+const requestedGame = gameFromQuery();
+if (requestedGame) selectGame(requestedGame.id);
 if (runtime === workerRuntime) {
   stopButton.hidden = false;
 } else {
