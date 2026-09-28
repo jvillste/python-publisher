@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python game arcade</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #0b1020;
+    color: #e2e8f0;
+  }
+  header {
+    padding: 10px 18px;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  header h1 { font-size: 20px; margin: 0; }
+  #loadStatus { color: #94a3b8; font-size: 14px; }
+  #layout {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    min-height: calc(100vh - 49px);
+  }
+  aside {
+    border-right: 1px solid #1e293b;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  aside h2 { font-size: 14px; text-transform: uppercase; color: #94a3b8; margin: 0; }
+  #gameList { display: flex; flex-direction: column; gap: 6px; }
+  .gameButton {
+    text-align: left;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #111831;
+    color: #e2e8f0;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .gameButton:hover { border-color: #38bdf8; }
+  .gameButton.active { background: #0ea5e9; border-color: #0ea5e9; color: #04121f; font-weight: 600; }
+  #runButton {
+    margin-top: auto;
+    padding: 10px;
+    border-radius: 8px;
+    border: none;
+    background: #22c55e;
+    color: #04121f;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  #runButton:disabled { background: #334155; color: #94a3b8; cursor: default; }
+  #stopButton {
+    padding: 9px;
+    border-radius: 8px;
+    border: 1px solid #f87171;
+    background: transparent;
+    color: #f87171;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .hint { color: #94a3b8; font-size: 12.5px; line-height: 1.45; margin: 0; }
+  main { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  #tabs { display: flex; gap: 6px; }
+  #tabs button {
+    padding: 7px 16px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid #1e293b;
+    border-bottom: none;
+    background: #111831;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  #tabs button.active { color: #e2e8f0; background: #0b1020; }
+  #playArea { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  #terminalColumn {
+    flex: 1 1 320px;
+    min-width: 260px;
+    display: flex;
+    flex-direction: column;
+  }
+  #terminal {
+    flex: 1;
+    height: 380px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #060a16;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #inputRow { display: flex; gap: 8px; margin-top: 8px; }
+  #inputRow[hidden] { display: none; }
+  #inputBox {
+    flex: 1;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #111831;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  #inputBox:focus { outline: none; border-color: #38bdf8; }
+  #inputSend {
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: none;
+    background: #0ea5e9;
+    color: #04121f;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #canvasBox {
+    flex: 0 1 604px;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #000;
+    overflow: hidden;
+  }
+  canvas { display: block; max-width: 100%; }
+  .output { color: #e2e8f0; }
+  .prompt { color: #7dd3fc; }
+  .answer { color: #fde047; }
+  .status { color: #64748b; font-style: italic; }
+  .error { color: #f87171; }
+  #sourceView {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #060a16;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    overflow: auto;
+    max-height: 70vh;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>&#128026; Python game arcade</h1>
+  <span id="loadStatus">Loading Python, please wait&hellip;</span>
+</header>
+<div id="layout">
+  <aside>
+    <h2>Games</h2>
+    <nav id="gameList"></nav>
+    <button id="runButton" disabled>&#9654; Run / Restart</button>
+    <button id="stopButton" hidden>&#9632; Stop</button>
+    <p class="hint">Type your answers into the text box under the terminal and
+    press Enter. Press Stop to end a game that never ends on its own.</p>
+    <p class="hint" id="fallbackNotice" hidden>This page is opened without
+    cross-origin isolation, so the games ask for answers with popup dialogs
+    and the Stop button is unavailable. Serve the page with
+    <code>python3 serve.py</code> and open http://localhost:8000 to type
+    answers in a text box instead.</p>
+  </aside>
+  <main>
+    <div id="tabs">
+      <button id="playTabButton" class="active">Play</button>
+      <button id="sourceTabButton">Source code</button>
+    </div>
+    <section id="playTab">
+      <div id="playArea">
+        <div id="terminalColumn">
+          <pre id="terminal"></pre>
+          <form id="inputRow" hidden autocomplete="off">
+            <input id="inputBox" placeholder="Type your answer and press Enter" disabled>
+            <button id="inputSend" type="submit">Send</button>
+          </form>
+        </div>
+        <div id="canvasBox"><canvas id="canvas" width="600" height="400"></canvas></div>
+      </div>
+    </section>
+    <section id="sourceTab" hidden>
+      <pre id="sourceView"></pre>
+    </section>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
+<script>
+"use strict";
+
+const GAMES = [
+  {
+    "id": "game",
+    "title": "Seikkailu",
+    "filename": "game.py",
+    "source": "# Title: Seikkailu\npaikka = \"olkkari\"\nhp = 10\nvastaus = \"\"\nwhile(vastaus != \"lopeta\"):\n    print(\"hyvinvointisi on\",str(hp)+\".\")\n    if(paikka == \"olkkari\"): print(\"olet olkkarissa, siellä on \\\"ajattele että tässä on hieno kuvaus paikasta\\\" voit mennä keittiöön vastaamalla \\\"keittiöön\\\"\")\n    if(paikka == \"keittiö\"): print(\"olet keittiössä, siellä on \\\"ajattele että tässä on tosi tosi TOSI hieno kuvaus paikasta\\\" voit mennä olkkariin vastaamalla \\\"olkkariin\\\"\")\n    vastaus = input(\"anna komento: \")\n    if(vastaus == \"keittiöön\" and paikka == \"olkkari\"):\n        paikka = \"keittiö\"\n    if(vastaus == \"olkkariin\"):\n        paikka = \"olkkari\"\n"
+  },
+  {
+    "id": "klikkipeli",
+    "title": "Klikkipeli (grafiikka-demo)",
+    "filename": "klikkipeli.py",
+    "source": "# Title: Klikkipeli (grafiikka-demo)\n\"\"\"Klikkaa keltaista palloa!\n\nTämä peli ei lue tekstikomentoja lainkaan, vaan käyttää screen-objektia:\nse piirtää ruudulle ja reagoi hiiren klikkauksiin, näppäinpainalluksiin ja\nanimaatiokehysiin.\n\"\"\"\n\nimport random\n\npisteet = 0\nsade = 24\npaikka = [300, 200]\nnopeus = [120, 90]\nedellinen_aika = None\n\n\ndef piirra():\n    screen.clear(\"#0f172a\")\n    screen.circle(paikka[0], paikka[1], sade, \"#facc15\")\n    screen.text(8, 8, \"Pisteet: \" + str(pisteet), \"#e2e8f0\", 14)\n    screen.text(8, screen.height - 24,\n                \"Klikkaa palloa!  Välilyönti = uusi pallo,  Esc = lopeta\",\n                \"#94a3b8\", 12)\n\n\ndef paivita(aika_ms):\n    global edellinen_aika\n    if edellinen_aika is None:\n        edellinen_aika = aika_ms\n        return\n    sekuntia = (aika_ms - edellinen_aika) / 1000\n    edellinen_aika = aika_ms\n    paikka[0] += nopeus[0] * sekuntia\n    paikka[1] += nopeus[1] * sekuntia\n    if paikka[0] < sade or paikka[0] > screen.width - sade:\n        nopeus[0] = -nopeus[0]\n    if paikka[1] < sade or paikka[1] > screen.height - sade:\n        nopeus[1] = -nopeus[1]\n    piirra()\n\n\ndef klikkaus(x, y):\n    global pisteet\n    dx = x - paikka[0]\n    dy = y - paikka[1]\n    if dx * dx + dy * dy <= sade * sade:\n        pisteet = pisteet + 1\n        nopeus[0] = nopeus[0] * 1.1\n        nopeus[1] = nopeus[1] * 1.1\n        print(\"Osuma! Pisteet:\", pisteet)\n    else:\n        print(\"Ohi meni.\")\n\n\ndef näppäin(näppäin_nimi):\n    global edellinen_aika\n    if näppäin_nimi == \"Escape\":\n        screen.on_frame(None)\n        screen.on_mouse_click(None)\n        screen.clear(\"#0f172a\")\n        screen.text(8, screen.height // 2 - 10,\n                    \"Peli loppui! Pisteet: \" + str(pisteet), \"#f87171\", 20)\n        print(\"Kiitos pelaamisesta! Loppupisteet:\", pisteet)\n    if näppäin_nimi == \" \":\n        paikka[0] = random.randint(sade, screen.width - sade)\n        paikka[1] = random.randint(sade, screen.height - sade)\n        nopeus[0] = random.choice([-1, 1]) * 120\n        nopeus[1] = random.choice([-1, 1]) * 90\n        edellinen_aika = None\n\n\npiirra()\nscreen.on_mouse_click(klikkaus)\nscreen.on_key_press(näppäin)\nscreen.on_frame(paivita)\nprint(\"Peli alkoi! Klikkaa keltaista palloa.\")\n"
+  }
+];
+const GAME_RUNTIME_PY = "\"\"\"Python-side runtime helpers for the game publishing page.\n\nThis module is embedded into index.html by build.py and executed once\ninside Pyodide when the page loads.  It defines ``run_game``, which the\npage calls to start or restart a game, and the ``input`` function and\n``screen`` object that every game receives in its namespace.\n\nThe JavaScript module ``js`` must provide:\n\n- ``js.gamePrompt(promptText)`` which asks the player for one line and\n  returns the answer, or ``None`` when the input dialog was closed.\n- ``js.gameScreen`` which draws on the canvas and manages event\n  handlers (clear, circle, rect, line, text, setOnMouseClick,\n  setOnMouseMove, setOnKeyPress, setOnFrame, width, height).\n\"\"\"\n\nimport linecache\nimport traceback\n\nimport js\n\ntry:\n    from pyodide.ffi import create_proxy, jsnull\nexcept ImportError:\n    jsnull = None\n\n    def create_proxy(value):\n        \"\"\"Fallback for running outside Pyodide (used by the tests).\"\"\"\n        return value\n\n\ndef _wrap_handler(handler):\n    \"\"\"Keep a Python event handler alive while JavaScript holds on to it.\"\"\"\n    if handler is None:\n        return None\n    return create_proxy(handler)\n\n\ndef game_input(prompt_text=\"\"):\n    \"\"\"Ask the player for one line of input (replaces builtin input).\"\"\"\n    answer = js.gamePrompt(prompt_text)\n    if answer is None or answer is jsnull:\n        raise EOFError(\"the input was cancelled\")\n    return answer\n\n\nclass Screen:\n    \"\"\"Draw on the game canvas and react to player and animation events.\n\n    A ready instance is available to every game as ``screen``.  Colors\n    are CSS color strings, for example \"#ff8800\", \"red\" or \"white\".\n    \"\"\"\n\n    @property\n    def width(self):\n        \"\"\"Canvas width in pixels.\"\"\"\n        return js.gameScreen.width\n\n    @property\n    def height(self):\n        \"\"\"Canvas height in pixels.\"\"\"\n        return js.gameScreen.height\n\n    def clear(self, color=\"#000000\"):\n        \"\"\"Fill the whole canvas with color.\"\"\"\n        js.gameScreen.clear(color)\n\n    def circle(self, x, y, radius, color=\"#ffffff\"):\n        \"\"\"Draw a filled circle with center (x, y).\"\"\"\n        js.gameScreen.circle(x, y, radius, color)\n\n    def rect(self, x, y, width, height, color=\"#ffffff\"):\n        \"\"\"Draw a filled rectangle with top left corner (x, y).\"\"\"\n        js.gameScreen.rect(x, y, width, height, color)\n\n    def line(self, x1, y1, x2, y2, color=\"#ffffff\", width=2):\n        \"\"\"Draw a line from (x1, y1) to (x2, y2).\"\"\"\n        js.gameScreen.line(x1, y1, x2, y2, color, width)\n\n    def text(self, x, y, content, color=\"#ffffff\", size=16):\n        \"\"\"Draw text with top left corner (x, y).\"\"\"\n        js.gameScreen.text(x, y, content, color, size)\n\n    def on_mouse_click(self, handler):\n        \"\"\"Call handler(x, y) when the player clicks the canvas.\n\n        Pass None to remove the handler.\n        \"\"\"\n        js.gameScreen.setOnMouseClick(_wrap_handler(handler))\n\n    def on_mouse_move(self, handler):\n        \"\"\"Call handler(x, y) whenever the mouse moves over the canvas.\n\n        Pass None to remove the handler.\n        \"\"\"\n        js.gameScreen.setOnMouseMove(_wrap_handler(handler))\n\n    def on_key_press(self, handler):\n        \"\"\"Call handler(key) when the player presses a key.\n\n        key is a keyboard key name such as \"a\", \" \", \"Enter\" or\n        \"ArrowLeft\".  Pass None to remove the handler.\n        \"\"\"\n        js.gameScreen.setOnKeyPress(_wrap_handler(handler))\n\n    def on_frame(self, handler):\n        \"\"\"Call handler(time_ms) for every animation frame.\n\n        time_ms is the current time in milliseconds.  Pass None to stop\n        the animation loop.\n        \"\"\"\n        js.gameScreen.setOnFrame(_wrap_handler(handler))\n\n\nSCREEN = Screen()\n\n\ndef _game_traceback(exception, filename):\n    \"\"\"Format a traceback showing only frames from the game file.\"\"\"\n    summary = traceback.StackSummary.extract(traceback.walk_tb(exception.__traceback__))\n    frames = [frame for frame in summary if frame.filename == filename]\n    if not frames:\n        frames = list(summary)\n    body = \"\"\n    for frame in frames:\n        body += 'File \"{}\", line {}, in {}\\n'.format(\n            frame.filename, frame.lineno, frame.name\n        )\n        if frame.line:\n            body += \"    \" + frame.line.strip() + \"\\n\"\n    return \"Traceback (most recent call last):\\n\" + body + repr(exception)\n\n\ndef run_game(source, filename):\n    \"\"\"Run one game in a fresh namespace and return (status, message).\n\n    status is \"finished\", \"stopped\" or \"error\".  message is empty for\n    \"finished\" and describes why the game stopped or failed otherwise.\n    \"\"\"\n    namespace = {\n        \"__name__\": \"__main__\",\n        \"__file__\": filename,\n        \"input\": game_input,\n        \"screen\": SCREEN,\n    }\n    linecache.cache[filename] = (\n        len(source),\n        None,\n        source.splitlines(keepends=True),\n        filename,\n    )\n    try:\n        exec(compile(source, filename, \"exec\"), namespace)\n    except EOFError:\n        return (\"stopped\", \"Game stopped.\")\n    except SystemExit:\n        return (\"finished\", \"\")\n    except BaseException as exception:\n        return (\"error\", _game_traceback(exception, filename))\n    return (\"finished\", \"\")\n";
+const GAME_WORKER_JS = "\"use strict\";\n/* Web worker that executes the games.\n\n   The page sends {type: \"init\", sab, runtimePy, indexURL} once, then\n   {type: \"run\", source, filename} to start a game, {type: \"event\", ...}\n   for canvas events and {type: \"frame\", time} for animation frames.\n\n   input() works by publishing the prompt with a {type: \"input\"} message\n   and then blocking on the shared control word until the page writes the\n   answer into the shared buffer (state 2) or cancels the request\n   (state 3, which the Python runtime turns into EOFError).\n\n   Shared buffer layout: control words 0 = state, 1 = answer length,\n   answer bytes from byte 32.  States: 0 idle, 1 wants input, 2 answer\n   written, 3 cancelled. */\n\nconst TEXT_ENCODER = new TextEncoder();\nconst TEXT_DECODER = new TextDecoder();\nconst ANSWER_OFFSET = 32;\n\nlet pyodide = null;\nlet runGameFunction = null;\nlet control = null;\nlet answerArea = null;\n\nconst handlers = {\n  onMouseClick: null,\n  onMouseMove: null,\n  onKeyPress: null,\n  onFrame: null,\n};\n\nfunction callHandler(handler, ...args) {\n  if (!handler) return;\n  try {\n    handler(...args);\n  } catch (error) {\n    postMessage({ type: \"output\", className: \"error\", text: String(error.message ?? error) });\n  }\n}\n\nfunction releaseHandler(handler) {\n  try {\n    if (handler && typeof handler.destroy === \"function\") handler.destroy();\n  } catch (error) {\n    /* already destroyed */\n  }\n}\n\nfunction clearHandlers() {\n  for (const key of Object.keys(handlers)) {\n    releaseHandler(handlers[key]);\n    handlers[key] = null;\n  }\n  postMessage({ type: \"frames\", active: false });\n  postMessage({ type: \"keyevents\", active: false });\n}\n\n/* Called from Python through the screen object of the game runtime. */\nconst gameScreen = {\n  width: 600,\n  height: 400,\n  clear(color) { postMessage({ type: \"draw\", name: \"clear\", args: [color] }); },\n  circle(x, y, radius, color) { postMessage({ type: \"draw\", name: \"circle\", args: [x, y, radius, color] }); },\n  rect(x, y, width, height, color) { postMessage({ type: \"draw\", name: \"rect\", args: [x, y, width, height, color] }); },\n  line(x1, y1, x2, y2, color, lineWidth) { postMessage({ type: \"draw\", name: \"line\", args: [x1, y1, x2, y2, color, lineWidth] }); },\n  text(x, y, content, color, size) { postMessage({ type: \"draw\", name: \"text\", args: [x, y, content, color, size] }); },\n  setOnMouseClick(handler) { handlers.onMouseClick = handler; },\n  setOnMouseMove(handler) { handlers.onMouseMove = handler; },\n  setOnKeyPress(handler) {\n    handlers.onKeyPress = handler;\n    postMessage({ type: \"keyevents\", active: handler !== null });\n  },\n  setOnFrame(handler) {\n    handlers.onFrame = handler;\n    postMessage({ type: \"frames\", active: handler !== null });\n  },\n};\nglobalThis.gameScreen = gameScreen;\n\n/* Called from Python (game_input in the runtime) for every input() call. */\nfunction gamePrompt(promptText) {\n  postMessage({ type: \"input\", prompt: promptText });\n  Atomics.store(control, 0, 1);\n  Atomics.notify(control, 0);\n  while (Atomics.load(control, 0) === 1) {\n    Atomics.wait(control, 0, 1);\n  }\n  const state = Atomics.load(control, 0);\n  Atomics.store(control, 0, 0);\n  if (state === 3) return null;\n  const length = Atomics.load(control, 1);\n  const received = new Uint8Array(length);\n  received.set(new Uint8Array(answerArea.buffer, ANSWER_OFFSET, length));\n  return TEXT_DECODER.decode(received);\n}\nglobalThis.gamePrompt = gamePrompt;\n\nasync function start(init) {\n  control = new Int32Array(init.sab, 0, 8);\n  answerArea = new Uint8Array(init.sab);\n  /* Pyodide requires module workers, so this file is created with\n     {type: \"module\"} and loads the ES module build. */\n  const pyodideModule = await import(init.indexURL + \"pyodide.mjs\");\n  pyodide = await pyodideModule.loadPyodide({ indexURL: init.indexURL });\n  pyodide.setStdout({ batched: (line) => postMessage({ type: \"output\", className: \"output\", text: line }) });\n  pyodide.setStderr({ batched: (line) => postMessage({ type: \"output\", className: \"error\", text: line }) });\n  await pyodide.runPythonAsync(init.runtimePy);\n  runGameFunction = pyodide.globals.get(\"run_game\");\n  postMessage({ type: \"ready\" });\n}\n\nself.onmessage = (event) => {\n  const message = event.data;\n  if (message.type === \"init\") {\n    start(message).catch((error) => {\n      postMessage({ type: \"load-failed\", text: String(error.message ?? error) });\n    });\n    return;\n  }\n  if (message.type === \"run\") {\n    clearHandlers();\n    const result = runGameFunction(message.source, message.filename);\n    const [status, text] = result.toJs();\n    result.destroy();\n    postMessage({ type: \"done\", status: status, message: text });\n    return;\n  }\n  if (message.type === \"event\") {\n    if (message.kind === \"click\") callHandler(handlers.onMouseClick, message.x, message.y);\n    if (message.kind === \"move\") callHandler(handlers.onMouseMove, message.x, message.y);\n    if (message.kind === \"key\") callHandler(handlers.onKeyPress, message.key);\n    return;\n  }\n  if (message.type === \"frame\") {\n    callHandler(handlers.onFrame, message.time);\n  }\n};\n";
+const PYODIDE_INDEX_URL = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
+
+const terminal = document.getElementById("terminal");
+const canvas = document.getElementById("canvas");
+const canvasContext = canvas.getContext("2d");
+const sourceView = document.getElementById("sourceView");
+const gameList = document.getElementById("gameList");
+const runButton = document.getElementById("runButton");
+const stopButton = document.getElementById("stopButton");
+const loadStatus = document.getElementById("loadStatus");
+const fallbackNotice = document.getElementById("fallbackNotice");
+const playTab = document.getElementById("playTab");
+const sourceTab = document.getElementById("sourceTab");
+const playTabButton = document.getElementById("playTabButton");
+const sourceTabButton = document.getElementById("sourceTabButton");
+const inputRow = document.getElementById("inputRow");
+const inputBox = document.getElementById("inputBox");
+
+let selectedGameId = null;
+
+function selectedGame() {
+  return GAMES.find((candidate) => candidate.id === selectedGameId) ?? null;
+}
+
+function appendTerminal(text, className) {
+  const line = document.createElement("span");
+  if (className) line.className = className;
+  line.textContent = text;
+  terminal.appendChild(line);
+  terminal.appendChild(document.createTextNode("\n"));
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+function clearTerminal() {
+  terminal.textContent = "";
+}
+
+function hideInputRow() {
+  inputRow.hidden = true;
+  inputBox.disabled = true;
+  inputBox.value = "";
+}
+
+function applyDraw(name, args) {
+  if (name === "clear") {
+    canvasContext.fillStyle = args[0];
+    canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  if (name === "circle") {
+    canvasContext.beginPath();
+    canvasContext.arc(args[0], args[1], args[2], 0, 2 * Math.PI);
+    canvasContext.fillStyle = args[3];
+    canvasContext.fill();
+    return;
+  }
+  if (name === "rect") {
+    canvasContext.fillStyle = args[4];
+    canvasContext.fillRect(args[0], args[1], args[2], args[3]);
+    return;
+  }
+  if (name === "line") {
+    canvasContext.strokeStyle = args[4];
+    canvasContext.lineWidth = args[5];
+    canvasContext.beginPath();
+    canvasContext.moveTo(args[0], args[1]);
+    canvasContext.lineTo(args[2], args[3]);
+    canvasContext.stroke();
+    return;
+  }
+  if (name === "text") {
+    canvasContext.fillStyle = args[3];
+    canvasContext.font = args[4] + "px monospace";
+    canvasContext.textBaseline = "top";
+    canvasContext.fillText(String(args[2]), args[0], args[1]);
+  }
+}
+
+function canvasPoint(event) {
+  const rectangle = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rectangle.left) * (canvas.width / rectangle.width),
+    y: (event.clientY - rectangle.top) * (canvas.height / rectangle.height),
+  };
+}
+
+function callHandler(handler, ...args) {
+  if (!handler) return;
+  try {
+    handler(...args);
+  } catch (error) {
+    appendTerminal(String(error.message ?? error), "error");
+  }
+}
+
+function releaseHandler(handler) {
+  try {
+    if (handler && typeof handler.destroy === "function") handler.destroy();
+  } catch (error) {
+    /* already destroyed */
+  }
+}
+
+function onRuntimeReady() {
+  loadStatus.textContent = "Python ready.";
+  runButton.disabled = false;
+  if (selectedGameId === null) {
+    if (GAMES.length > 0) selectGame(GAMES[0].id);
+    return;
+  }
+  const pending = runtime.takePendingRun();
+  if (pending) runtime.startGame(pending);
+}
+
+function showGameDone(status, message) {
+  if (message) {
+    appendTerminal(message, status === "error" ? "error" : "status");
+  }
+  hideInputRow();
+}
+
+/* ------------------------------------------------------------------ *
+ * Worker runtime: the games run in a web worker, input() blocks on a *
+ * SharedArrayBuffer and the answer is typed into the text box.       *
+ * ------------------------------------------------------------------ */
+
+const workerRuntime = {
+  mode: "worker",
+  worker: null,
+  ready: false,
+  pendingRun: null,
+  pendingInput: false,
+  workerHasKey: false,
+  sharedBuffer: null,
+  control: null,
+  frameLoopId: 0,
+
+  start() {
+    this.sharedBuffer = new SharedArrayBuffer(32 + 4096);
+    this.control = new Int32Array(this.sharedBuffer, 0, 8);
+    this.spawnWorker();
+  },
+
+  spawnWorker() {
+    this.ready = false;
+    this.pendingInput = false;
+    this.workerHasKey = false;
+    hideInputRow();
+    const blobUrl = URL.createObjectURL(
+      new Blob([GAME_WORKER_JS], { type: "text/javascript" })
+    );
+    this.worker = new Worker(blobUrl, { type: "module" });
+    this.worker.onmessage = (event) => this.receive(event.data);
+    this.worker.onerror = (event) => {
+      appendTerminal(String(event.message ?? event), "error");
+    };
+    this.worker.postMessage({
+      type: "init",
+      sab: this.sharedBuffer,
+      runtimePy: GAME_RUNTIME_PY,
+      indexURL: PYODIDE_INDEX_URL,
+    });
+  },
+
+  receive(message) {
+    if (message.type === "ready") {
+      this.ready = true;
+      onRuntimeReady();
+      return;
+    }
+    if (message.type === "load-failed") {
+      loadStatus.textContent = "Failed to load Python.";
+      appendTerminal(message.text, "error");
+      return;
+    }
+    if (message.type === "output") {
+      appendTerminal(message.text, message.className);
+      return;
+    }
+    if (message.type === "input") {
+      appendTerminal(message.prompt, "prompt");
+      this.pendingInput = true;
+      inputRow.hidden = false;
+      inputBox.disabled = false;
+      inputBox.focus();
+      return;
+    }
+    if (message.type === "done") {
+      showGameDone(message.status, message.message);
+      if (this.pendingRun) {
+        const game = this.pendingRun;
+        this.pendingRun = null;
+        this.startGame(game);
+      }
+      return;
+    }
+    if (message.type === "draw") {
+      applyDraw(message.name, message.args);
+      return;
+    }
+    if (message.type === "frames") {
+      this.setFrameLoop(message.active);
+      return;
+    }
+    if (message.type === "keyevents") {
+      this.workerHasKey = message.active;
+    }
+  },
+
+  takePendingRun() {
+    const game = this.pendingRun;
+    this.pendingRun = null;
+    return game;
+  },
+
+  requestRun(game) {
+    if (!this.ready) {
+      this.pendingRun = game;
+      return;
+    }
+    if (this.pendingInput) {
+      this.pendingRun = game;
+      this.cancelInput();
+      return;
+    }
+    this.startGame(game);
+  },
+
+  startGame(game) {
+    clearTerminal();
+    appendTerminal("--- Running " + game.filename + " ---", "status");
+    applyDraw("clear", ["#000000"]);
+    this.setFrameLoop(false);
+    this.worker.postMessage({
+      type: "run",
+      source: game.source,
+      filename: game.filename,
+    });
+  },
+
+  submitInput() {
+    if (!this.pendingInput) return;
+    const answer = inputBox.value;
+    this.pendingInput = false;
+    hideInputRow();
+    appendTerminal(answer, "answer");
+    const bytes = new TextEncoder().encode(answer);
+    const clipped = bytes.subarray(0, 4096);
+    new Uint8Array(this.sharedBuffer).set(clipped, 32);
+    Atomics.store(this.control, 1, clipped.length);
+    Atomics.store(this.control, 0, 2);
+    Atomics.notify(this.control, 0);
+  },
+
+  cancelInput() {
+    if (!this.pendingInput) return;
+    this.pendingInput = false;
+    hideInputRow();
+    Atomics.store(this.control, 0, 3);
+    Atomics.notify(this.control, 0);
+  },
+
+  stop() {
+    if (this.pendingInput) {
+      this.cancelInput();
+      return;
+    }
+    /* The game is computing and cannot be interrupted gently, so rebuild
+       the worker (and reload Python, which the browser keeps cached). */
+    this.worker.terminate();
+    this.pendingRun = selectedGame();
+    loadStatus.textContent = "Loading Python, please wait…";
+    this.spawnWorker();
+  },
+
+  setFrameLoop(active) {
+    cancelAnimationFrame(this.frameLoopId);
+    if (!active) return;
+    const loop = (timeMs) => {
+      this.worker.postMessage({ type: "frame", time: timeMs });
+      this.frameLoopId = requestAnimationFrame(loop);
+    };
+    this.frameLoopId = requestAnimationFrame(loop);
+  },
+
+  onMouseClick(x, y) {
+    this.worker.postMessage({ type: "event", kind: "click", x: x, y: y });
+  },
+
+  onMouseMove(x, y) {
+    this.worker.postMessage({ type: "event", kind: "move", x: x, y: y });
+  },
+
+  onKeyPress(event) {
+    if (!this.workerHasKey) return;
+    event.preventDefault();
+    this.worker.postMessage({ type: "event", kind: "key", key: event.key });
+  },
+};
+
+/* ------------------------------------------------------------------ *
+ * Fallback runtime for pages without cross-origin isolation (for     *
+ * example opened straight from disk): Pyodide runs on the main       *
+ * thread and input() uses popup dialogs.                             *
+ * ------------------------------------------------------------------ */
+
+const gameState = {
+  onMouseClick: null,
+  onMouseMove: null,
+  onKeyPress: null,
+  onFrame: null,
+  frameId: 0,
+};
+
+/* Called from Python (game_input in the runtime) for every input() call. */
+function gamePrompt(promptText) {
+  appendTerminal(promptText, "prompt");
+  const answer = window.prompt(promptText);
+  if (answer === null) {
+    appendTerminal("(input dialog closed)", "status");
+    return null;
+  }
+  appendTerminal(answer, "answer");
+  return answer;
+}
+globalThis.gamePrompt = gamePrompt;
+
+const gameScreen = {
+  get width() { return canvas.width; },
+  get height() { return canvas.height; },
+  clear(color) { applyDraw("clear", [color]); },
+  circle(x, y, radius, color) { applyDraw("circle", [x, y, radius, color]); },
+  rect(x, y, width, height, color) { applyDraw("rect", [x, y, width, height, color]); },
+  line(x1, y1, x2, y2, color, lineWidth) { applyDraw("line", [x1, y1, x2, y2, color, lineWidth]); },
+  text(x, y, content, color, size) { applyDraw("text", [x, y, content, color, size]); },
+  setOnMouseClick(handler) { gameState.onMouseClick = handler ?? null; },
+  setOnMouseMove(handler) { gameState.onMouseMove = handler ?? null; },
+  setOnKeyPress(handler) { gameState.onKeyPress = handler ?? null; },
+  setOnFrame(handler) {
+    cancelAnimationFrame(gameState.frameId);
+    gameState.onFrame = handler ?? null;
+    if (handler) {
+      const loop = (timeMs) => {
+        callHandler(gameState.onFrame, timeMs);
+        gameState.frameId = requestAnimationFrame(loop);
+      };
+      gameState.frameId = requestAnimationFrame(loop);
+    }
+  },
+};
+globalThis.gameScreen = gameScreen;
+
+function clearGameState() {
+  cancelAnimationFrame(gameState.frameId);
+  for (const key of ["onMouseClick", "onMouseMove", "onKeyPress", "onFrame"]) {
+    releaseHandler(gameState[key]);
+    gameState[key] = null;
+  }
+  applyDraw("clear", ["#000000"]);
+}
+
+const mainThreadRuntime = {
+  mode: "fallback",
+  pyodide: null,
+  runGameFunction: null,
+  ready: false,
+  pendingRun: null,
+
+  start() {
+    this.pyodide = null;
+    const promise = loadPyodide({ indexURL: PYODIDE_INDEX_URL })
+      .then((pyodide) => {
+        this.pyodide = pyodide;
+        pyodide.setStdout({ batched: (line) => appendTerminal(line, "output") });
+        pyodide.setStderr({ batched: (line) => appendTerminal(line, "error") });
+        return pyodide.runPythonAsync(GAME_RUNTIME_PY);
+      })
+      .then(() => {
+        this.runGameFunction = this.pyodide.globals.get("run_game");
+        this.ready = true;
+        onRuntimeReady();
+      })
+      .catch((error) => {
+        loadStatus.textContent = "Failed to load Python.";
+        appendTerminal(String(error.message ?? error), "error");
+      });
+    return promise;
+  },
+
+  takePendingRun() {
+    const game = this.pendingRun;
+    this.pendingRun = null;
+    return game;
+  },
+
+  requestRun(game) {
+    if (!this.ready) {
+      this.pendingRun = game;
+      return;
+    }
+    this.startGame(game);
+  },
+
+  startGame(game) {
+    clearGameState();
+    clearTerminal();
+    appendTerminal("--- Running " + game.filename + " ---", "status");
+    const result = this.runGameFunction(game.source, game.filename);
+    const [status, message] = result.toJs();
+    result.destroy();
+    showGameDone(status, message);
+  },
+
+  stop() { /* not available while Python runs on the main thread */ },
+
+  onMouseClick(x, y) { callHandler(gameState.onMouseClick, x, y); },
+  onMouseMove(x, y) { callHandler(gameState.onMouseMove, x, y); },
+  onKeyPress(event) {
+    if (!gameState.onKeyPress) return;
+    event.preventDefault();
+    callHandler(gameState.onKeyPress, event.key);
+  },
+};
+
+const runtime = (typeof SharedArrayBuffer === "function" && crossOriginIsolated)
+  ? workerRuntime
+  : mainThreadRuntime;
+
+/* ------------------------------------------------------------------ *
+ * Page wiring                                                        *
+ * ------------------------------------------------------------------ */
+
+canvas.addEventListener("click", (event) => {
+  const point = canvasPoint(event);
+  runtime.onMouseClick(point.x, point.y);
+});
+canvas.addEventListener("mousemove", (event) => {
+  const point = canvasPoint(event);
+  runtime.onMouseMove(point.x, point.y);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (document.activeElement === inputBox) return;
+  runtime.onKeyPress(event);
+});
+
+inputRow.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runtime.submitInput();
+});
+
+function buildGameList() {
+  gameList.textContent = "";
+  for (const game of GAMES) {
+    const button = document.createElement("button");
+    button.className = "gameButton";
+    button.textContent = game.title;
+    button.addEventListener("click", () => selectGame(game.id));
+    gameList.appendChild(button);
+  }
+}
+
+function showTab(name) {
+  playTab.hidden = name !== "play";
+  sourceTab.hidden = name !== "source";
+  playTabButton.classList.toggle("active", name === "play");
+  sourceTabButton.classList.toggle("active", name === "source");
+}
+
+function selectGame(id) {
+  selectedGameId = id;
+  const game = selectedGame();
+  for (let index = 0; index < gameList.children.length; index += 1) {
+    gameList.children[index].classList.toggle("active", GAMES[index].id === id);
+  }
+  sourceView.textContent = game.source;
+  showTab("play");
+  runtime.requestRun(game);
+}
+
+playTabButton.addEventListener("click", () => showTab("play"));
+sourceTabButton.addEventListener("click", () => showTab("source"));
+runButton.addEventListener("click", () => {
+  const game = selectedGame();
+  if (game) runtime.requestRun(game);
+});
+stopButton.addEventListener("click", () => runtime.stop());
+
+buildGameList();
+if (runtime === workerRuntime) {
+  stopButton.hidden = false;
+} else {
+  fallbackNotice.hidden = false;
+}
+runtime.start();
+</script>
+</body>
+</html>

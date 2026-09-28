@@ -1,3 +1,4 @@
+# Title: Seikkailu
 paikka = "olkkari"
 hp = 10
 vastaus = ""
