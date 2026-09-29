@@ -5,8 +5,10 @@
    {type: "run", source, filename} to start a Python game,
    {type: "run-odin", wasmBase64, filename, width, height} to start an
    Odin game, {type: "event", ...} for canvas events,
-   {type: "frame", time} for animation frames and
-   {type: "sound", ...} for a sound that the game wants to play.
+   {type: "frame", time} for animation frames,
+   {type: "sound", ...} for a synthesized sound and {type: "samples",
+   samples, sampleRate} for a sound the game generated itself as an
+   array of samples in the -1..1 range.
 
    Python input() and Odin console.input() work the same way: the prompt
    is published with an {type: "input"} message and the game blocks on
@@ -209,8 +211,9 @@ function createOdinEnv(width, height) {
     host_set_key_events(active) { postMessage({ type: "keyevents", active: active !== 0 }); },
     host_set_mouse_click() { /* click events are always forwarded */ },
     host_set_mouse_move() { /* mouse move events are always forwarded */ },
-    host_play_sound(frequency, duration, attack, decay, sustain, release, volume) {
-      postMessage({ type: "sound", frequency, duration, attack, decay, sustain, release, volume });
+    host_play_samples(samplesPointer, sampleCount, sampleRate) {
+      const samples = new Float32Array(odinInstance.exports.memory.buffer, samplesPointer, sampleCount);
+      postMessage({ type: "samples", samples: Array.from(samples), sampleRate });
     },
     host_input(promptPointer, promptLength, answerPointer, answerCapacity) {
       const promptText = odinReadString(promptPointer, promptLength);

@@ -15,6 +15,10 @@ SUSTAIN_LEVEL :: 0.8
 RELEASE       :: 1.25
 VOLUME        :: 0.2
 
+// The number of samples per second that the sound is generated at.
+// The page plays the buffer back at exactly this rate.
+SAMPLE_RATE :: 22050
+
 // The sustain hold lasts until the release begins.
 SUSTAIN_HOLD :: DURATION - ATTACK - DECAY - RELEASE
 
@@ -52,8 +56,12 @@ ENVELOPE_STRIP_HEIGHT :: ENVELOPE_BOTTOM - ENVELOPE_STRIP_TOP
 WAVE_STRIP_TOP        :: WAVE_MID - WAVE_HALF - 4
 WAVE_STRIP_HEIGHT     :: WAVE_MID + WAVE_HALF - WAVE_STRIP_TOP
 
-// How many saw samples are inspected per one pixel wide column.
-SAMPLES_PER_COLUMN :: 16
+// How many generated samples are inspected per one pixel wide column.
+SAMPLES_PER_COLUMN :: 4
+
+// The generated sound.  It is filled once before the game starts, played
+// from the start on every repeat and read on every redrawn pixel column.
+samples: [i32(f32(SAMPLE_RATE) * DURATION)]f32
 
 last_sound_ms: i32 = -REPEAT_MS
 playhead_x: i32 = PLOT_LEFT
@@ -91,6 +99,29 @@ saw_sample :: proc(seconds: f32) -> f32 {
 	return (2.0 * phase - 1.0) * envelope_shape(seconds)
 }
 
+// generate_samples fills the sample buffer with the whole sound: every
+// value is one sample of the saw wave at its point of time, scaled into
+// the -1..1 range that audio.play_samples expects.
+generate_samples :: proc() {
+	for index: i32 = 0; index < i32(len(samples)); index += 1 {
+		seconds := f32(index) / f32(SAMPLE_RATE)
+		samples[index] = saw_sample(seconds) * VOLUME
+	}
+}
+
+// samples_between returns the smallest and largest sample that the
+// buffer holds between two points of time of the sound.
+samples_between :: proc(start_seconds, end_seconds: f32) -> (minimum, maximum: f32) {
+	first := clamp(i32(start_seconds * f32(SAMPLE_RATE)), 0, i32(len(samples)) - 1)
+	last := clamp(i32(end_seconds * f32(SAMPLE_RATE)), 0, i32(len(samples)) - 1)
+	minimum, maximum = samples[first], samples[first]
+	for index: i32 = first + 1; index <= last; index += 1 {
+		minimum = min(minimum, samples[index])
+		maximum = max(maximum, samples[index])
+	}
+	return
+}
+
 x_for_time :: proc(seconds: f32) -> i32 {
 	return PLOT_LEFT + i32(seconds / DURATION * f32(PLOT_WIDTH))
 }
@@ -103,10 +134,10 @@ envelope_y :: proc(shape: f32) -> i32 {
 	return ENVELOPE_BOTTOM - i32(shape * f32(ENVELOPE_HEIGHT))
 }
 
-// The samples are already shaped by the envelope, and both plots are
-// normalized to the peak volume, so the amplitude maps directly.
+// wave_y maps a sample value onto the waveform plot.  The samples are
+// scaled by the peak volume, so the loudest sample reaches both edges.
 wave_y :: proc(amplitude: f32) -> i32 {
-	return WAVE_MID - i32(amplitude * f32(WAVE_HALF))
+	return WAVE_MID - i32(amplitude / VOLUME * f32(WAVE_HALF))
 }
 
 // draw_h_line draws a horizontal guide line, but only the part that
@@ -168,16 +199,7 @@ draw_waveform_bars :: proc(only_from, only_to: i32) {
 		if column < only_from || column > only_to {
 			continue
 		}
-		start := time_for_x(column)
-		end := time_for_x(column + 1)
-		minimum := saw_sample(start)
-		maximum := minimum
-		for sample: i32 = 1; sample < SAMPLES_PER_COLUMN; sample += 1 {
-			seconds := start + (end - start) * f32(sample) / SAMPLES_PER_COLUMN
-			value := saw_sample(seconds)
-			minimum = min(minimum, value)
-			maximum = max(maximum, value)
-		}
+		minimum, maximum := samples_between(time_for_x(column), time_for_x(column + 1))
 		if minimum == 0 && maximum == 0 {
 			continue
 		}
@@ -241,7 +263,7 @@ update :: proc(time_ms: i32) {
 	just_redrew := false
 	if time_ms - last_sound_ms >= REPEAT_MS {
 		last_sound_ms = time_ms
-		audio.play(FREQUENCY, DURATION, ATTACK, DECAY, SUSTAIN_LEVEL, RELEASE, VOLUME)
+		audio.play_samples(samples[:], SAMPLE_RATE)
 		draw_everything()
 		playhead_x = PLOT_LEFT
 		just_redrew = true
@@ -250,6 +272,7 @@ update :: proc(time_ms: i32) {
 }
 
 main :: proc() {
+	generate_samples()
 	draw_everything()
 	screen.on_frame(update)
 }

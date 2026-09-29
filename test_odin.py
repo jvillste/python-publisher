@@ -86,8 +86,9 @@ const imports = {
     host_set_key_events(active) { draws.push(["keyevents", active !== 0]); },
     host_set_mouse_click(active) { draws.push(["mouseclick", active !== 0]); },
     host_set_mouse_move(active) { draws.push(["mousemove", active !== 0]); },
-    host_play_sound(frequency, duration, attack, decay, sustain, release, volume) {
-      draws.push(["sound", frequency, duration, attack, decay, sustain, release, volume]);
+    host_play_samples(samplesPointer, sampleCount, sampleRate) {
+      const samples = new Float32Array(instance.exports.memory.buffer, samplesPointer, sampleCount);
+      draws.push(["samples", sampleRate, Array.from(samples)]);
     },
     host_input(promptPointer, promptLength, answerPointer, answerCapacity) {
       const prompt = readString(promptPointer, promptLength);
@@ -311,23 +312,33 @@ class TestSawSoundOdin(OdinGameTestCase):
             [
                 {"type": "frame", "time": 0},
                 {"type": "frame", "time": 100},
-                {"type": "frame", "time": 800},
+                {"type": "frame", "time": 4700},
             ],
         )
         self.assertIsNone(result["trap"])
         self.assertTrue(result["finished"])
         self.assertIn(["frames", True], result["draws"])
         self.assertIn(["clear", "#0f172a"], result["draws"])
-        sounds = [draw for draw in result["draws"] if draw[0] == "sound"]
-        # The sound starts on the first frame and repeats every 700 ms.
-        self.assertEqual(len(sounds), 2)
-        self.assertAlmostEqual(sounds[0][1], 220.0, places=5)
-        self.assertAlmostEqual(sounds[0][2], 0.4, places=5)
-        self.assertAlmostEqual(sounds[0][3], 0.02, places=5)
-        self.assertAlmostEqual(sounds[0][4], 0.1, places=5)
-        self.assertAlmostEqual(sounds[0][5], 0.5, places=5)
-        self.assertAlmostEqual(sounds[0][6], 0.25, places=5)
-        self.assertAlmostEqual(sounds[0][7], 0.7, places=5)
+        sample_buffers = [draw for draw in result["draws"] if draw[0] == "samples"]
+        # The sound starts on the first frame and repeats every 4700 ms.
+        self.assertEqual(len(sample_buffers), 2)
+        self.assertEqual(sample_buffers[0][1], 22050)
+        samples = sample_buffers[0][2]
+        # The 3.4 s buffer holds 22050 * 3.4 samples.
+        self.assertEqual(len(samples), 74970)
+        # The loudest sample is scaled to the peak volume 0.2 and is
+        # reached at the end of the attack.
+        self.assertAlmostEqual(max(abs(value) for value in samples), 0.2, places=5)
+        # The saw wave oscillates at 220 Hz: eleven rising zero crossings
+        # fit into the first 0.05 s.
+        zero_crossings = sum(
+            1 for index in range(1, 1103) if samples[index - 1] < 0 <= samples[index]
+        )
+        self.assertEqual(zero_crossings, 11)
+        # The samples are loud in the sustain hold (0.45..2.15 s) and
+        # faded to (almost) silence after the release.
+        self.assertGreater(max(abs(value) for value in samples[12000:44000]), 0.15)
+        self.assertLess(abs(samples[-1]), 0.001)
         # The game draws its envelope curve and waveform bars.
         self.assertTrue(any(draw[0] == "line" for draw in result["draws"]))
         self.assertTrue(any(draw[0] == "rect" for draw in result["draws"]))

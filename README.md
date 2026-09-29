@@ -172,10 +172,16 @@ import audio "lib:audio"
 audio.play(220, 0.4, 0.02, 0.1, 0.5, 0.25, 0.7)
 ```
 
+An Odin game can also synthesize the samples itself and play the whole
+buffer with `audio.play_samples(samples, sample_rate)`: `samples` is a
+`[]f32` in the -1..1 range, one value per `sample_rate`-th of a second
+(the page copies the buffer before playing, so it can be reused).
+`games/saw_sound.odin` is a complete example: it fills a buffer with a
+saw-wave note shaped by an ADSR envelope, plays that same buffer on a
+timer and draws its envelope and waveform plots from the same samples.
+
 Browsers only allow sound after the player has interacted with the page,
-so the first click or key press unlocks it. `games/saw_sound.odin` is a
-complete example: it repeats a short saw-wave blip and draws the
-envelope and the waveform on the game canvas itself.
+so the first click or key press unlocks it.
 
 ## Writing Odin games
 

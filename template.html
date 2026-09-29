@@ -437,6 +437,31 @@ function playSound(message) {
   }
 }
 
+/* Play a buffer of samples that the game generated itself.  The
+   samples arrive as plain numbers in the -1..1 range (clamped), the
+   buffer is built once per sound and the source node is discarded
+   when the buffer has finished playing. */
+function playSamples(samples, sampleRate) {
+  if (!Array.isArray(samples) || samples.length === 0) return;
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
+  try {
+    const context = ensureAudioContext();
+    if (context.state === "suspended") context.resume();
+    const buffer = context.createBuffer(1, samples.length, Math.round(sampleRate));
+    const channel = buffer.getChannelData(0);
+    for (let index = 0; index < samples.length; index += 1) {
+      const value = samples[index];
+      channel[index] = Number.isFinite(value) ? Math.min(1, Math.max(-1, value)) : 0;
+    }
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start();
+  } catch (error) {
+    /* Audio output is unavailable. */
+  }
+}
+
 function scheduleOscillator(sound) {
   const context = ensureAudioContext();
   if (context.state === "suspended") context.resume();
@@ -571,6 +596,10 @@ const workerRuntime = {
     }
     if (message.type === "sound") {
       playSound(message);
+      return;
+    }
+    if (message.type === "samples") {
+      playSamples(message.samples, message.sampleRate);
       return;
     }
     if (message.type === "draw") {
@@ -886,12 +915,10 @@ function createOdinImports(holder) {
       host_set_mouse_move(active) {
         gameState.onMouseMove = active ? (x, y) => odinBridge("screen_mouse_move", x, y) : null;
       },
-      host_input() {
-        throw new Error(
-          "This Odin game asks for input, which needs the text-box mode. " +
-          "Serve the page with python3 serve.py and open it over HTTP."
-        );
-      },
+    },
+    host_play_samples(samplesPointer, sampleCount, sampleRate) {
+      const samples = new Float32Array(holder.instance.exports.memory.buffer, samplesPointer, sampleCount);
+      playSamples(Array.from(samples), sampleRate);
     },
     odin_env: {
       write(fileDescriptor, pointer, length) {
