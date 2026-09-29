@@ -19,6 +19,9 @@ needed on the player's machine.
   prompt and answer is echoed into the terminal so the whole conversation
   stays readable there.
 - Graphical games draw on the canvas next to the terminal.
+- Games can **play sounds**. When a game plays one, it is synthesized in the
+  browser (a saw wave shaped by an ADSR volume envelope) and the *Sound* tab
+  shows the envelope and the generated waveform of the most recent sound.
 
 ### How the page is opened
 
@@ -47,9 +50,9 @@ the page is served with two response headers, so:
 | --- | --- |
 | `build.py` | Generates `index.html` from the template and the games directory. |
 | `template.html` | Page layout, styles and JavaScript runtime (terminal, canvas, Pyodide loader, Odin module loader). |
-| `runtime/game_runtime.py` | Python glue embedded into the page: the `input` and `screen` APIs and the game runner. |
+| `runtime/game_runtime.py` | Python glue embedded into the page: the `input`, `screen` and `audio` APIs and the game runner. |
 | `runtime/game_worker.js` | Web worker that executes the games when the page is cross-origin isolated. |
-| `runtime/odin/` | Odin runtime packages (`screen`, `console`) that every Odin game imports. |
+| `runtime/odin/` | Odin runtime packages (`screen`, `console`, `audio`) that every Odin game imports. |
 | `serve.py` | Tiny development server that sends the headers the text-box input needs. |
 | `games/*.py` | The published Python games. Every `.py` file here becomes a game. |
 | `games/*.odin` | The published Odin games. Every `.odin` file here is compiled to WebAssembly at build time. |
@@ -136,6 +139,47 @@ screen.on_mouse_click(klikkaus)
 screen.clear("black")
 ```
 
+## Making sounds
+
+Games can play short synthesized sounds. Every sound is a sawtooth
+oscillator whose volume follows an **ADSR envelope**: the volume rises from
+silence during the *attack*, falls to the *sustain* level during the *decay*,
+holds there and finally fades to silence during the *release*. All durations
+are in seconds.
+
+Python games receive a ready `audio` object in their namespace:
+
+```python
+audio.play(220, 0.4)                     # a plain short 220 Hz note
+audio.play(220, 0.4, 0.02, 0.1, 0.5, 0.25, 0.7)
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `frequency` | Pitch in Hz (default 440). |
+| `duration` | Total length in seconds (default 0.5). |
+| `attack` | Time from silence to full volume in seconds (default 0.01). |
+| `decay` | Time from full volume down to the sustain level in seconds (default 0.1). |
+| `sustain` | The envelope level the decay lands on, 0–1 (default 0.6). |
+| `release` | Time of the final fade-out to silence in seconds (default 0.2). |
+| `volume` | Peak loudness, 0–1 (default 0.5). |
+
+Odin games import the `audio` package, which has the same parameters with
+the same defaults:
+
+```odin
+import audio "lib:audio"
+
+audio.play(220, 0.4, 0.02, 0.1, 0.5, 0.25, 0.7)
+```
+
+The page shows what was played on its **Sound** tab: the ADSR envelope and
+the generated waveform of the most recent sound. Browsers only allow sound
+after the player has interacted with the page, so the first click or key
+press unlocks it. `games/saw_sound.odin` is a complete example: it repeats
+a short saw-wave blip and draws the envelope and the waveform on the game
+canvas itself.
+
 ## Writing Odin games
 
 An Odin game is an ordinary Odin package that is compiled to WebAssembly at
@@ -188,7 +232,8 @@ Key codes: single-character keys arrive as their Unicode code point
 `Key_Arrow_Down`, `Key_Home`, `Key_End`, `Key_Page_Up`, `Key_Page_Down` and
 `Key_Insert`.
 
-`games/demo_odin.odin` (a bouncing ball) and `games/seikkailu_odin.odin`
+`games/demo_odin.odin` (a bouncing ball), `games/saw_sound.odin` (a repeating
+synthesized sound with its visualizations) and `games/seikkailu_odin.odin`
 (the text adventure of `games/game.py` rewritten in Odin) are complete
 examples.
 
@@ -277,8 +322,8 @@ python3 -m unittest test_build test_runtime test_odin
 ```
 
 `test_runtime.py` runs the exact Python code that is embedded into the page
-against a fake `js` module, so the game runner, the `input` dialog bridge
-and the `screen` facade are tested without a browser.
+against a fake `js` module, so the game runner, the `input` dialog bridge,
+the `screen` facade and the `audio` facade are tested without a browser.
 
 `test_odin.py` compiles the example Odin games and executes them in Node.js
 worker threads with the same import interface that the page uses, so the

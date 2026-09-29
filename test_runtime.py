@@ -26,6 +26,16 @@ class FakeScreen:
         return record
 
 
+class FakeAudio:
+    """Records every note played through the audio facade."""
+
+    def __init__(self):
+        self.calls = []
+
+    def play(self, *arguments):
+        self.calls.append(arguments)
+
+
 class FakeScreenFacadeTarget(FakeScreen):
     """Fake js.gameScreen whose width and height are read as attributes."""
 
@@ -37,9 +47,11 @@ class FakeScreenFacadeTarget(FakeScreen):
 
 def load_runtime():
     fake_screen = FakeScreenFacadeTarget()
+    fake_audio = FakeAudio()
 
     js_module = types.ModuleType("js")
     js_module.gameScreen = fake_screen
+    js_module.gameAudio = fake_audio
     js_module.answers = []
 
     def gamePrompt(prompt_text=""):
@@ -61,10 +73,10 @@ def load_runtime():
     spec = importlib.util.spec_from_file_location("game_runtime", RUNTIME_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module, js_module, fake_screen
+    return module, js_module, fake_screen, fake_audio
 
 
-runtime, js_module, fake_screen = load_runtime()
+runtime, js_module, fake_screen, fake_audio = load_runtime()
 
 
 class TestGameInput(unittest.TestCase):
@@ -160,6 +172,32 @@ class TestRunGame(unittest.TestCase):
         self.assertIsNone(removed)
         frame_handlers = [call for call in fake_screen.calls if call[0] == "setOnFrame"]
         self.assertEqual(frame_handlers, [])
+
+    def test_audio_facade_forwards_call_with_defaults(self):
+        fake_audio.calls.clear()
+        captured = io.StringIO()
+        with redirect_stdout(captured):
+            status, _ = runtime.run_game("audio.play(220, 0.4)", "testi.py")
+        self.assertEqual(status, "finished")
+        self.assertEqual(
+            fake_audio.calls,
+            [(220.0, 0.4, 0.01, 0.1, 0.6, 0.2, 0.5)],
+        )
+
+    def test_audio_facade_forwards_all_parameters(self):
+        fake_audio.calls.clear()
+        captured = io.StringIO()
+        with redirect_stdout(captured):
+            status, _ = runtime.run_game(
+                'audio.play(frequency=100, duration=1, attack=0.5, '
+                'decay=0.2, sustain=0.3, release=0.25, volume=0.9)',
+                "testi.py",
+            )
+        self.assertEqual(status, "finished")
+        self.assertEqual(
+            fake_audio.calls,
+            [(100.0, 1.0, 0.5, 0.2, 0.3, 0.25, 0.9)],
+        )
 
 
 if __name__ == "__main__":

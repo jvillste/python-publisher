@@ -86,6 +86,9 @@ const imports = {
     host_set_key_events(active) { draws.push(["keyevents", active !== 0]); },
     host_set_mouse_click(active) { draws.push(["mouseclick", active !== 0]); },
     host_set_mouse_move(active) { draws.push(["mousemove", active !== 0]); },
+    host_play_sound(frequency, duration, attack, decay, sustain, release, volume) {
+      draws.push(["sound", frequency, duration, attack, decay, sustain, release, volume]);
+    },
     host_input(promptPointer, promptLength, answerPointer, answerCapacity) {
       const prompt = readString(promptPointer, promptLength);
       parentPort.postMessage({ type: "input", prompt });
@@ -295,6 +298,39 @@ class TestDemoOdin(OdinGameTestCase):
         circle_draws = [draw for draw in result["draws"] if draw[0] == "circle"]
         self.assertEqual(circle_draws[-1][1], 312)
         self.assertEqual(circle_draws[-1][2], 209)
+
+
+class TestSawSoundOdin(OdinGameTestCase):
+    """The saw-wave example repeats its sound and draws its visualizations."""
+
+    @unittest.skipUnless(odin_available(), "odin compiler not installed")
+    @unittest.skipUnless(node_available(), "node not installed")
+    def test_saw_sound_repeats_and_draws(self):
+        result = self.run_odin_game(
+            PROJECT_DIR / "games" / "saw_sound.odin",
+            [
+                {"type": "frame", "time": 0},
+                {"type": "frame", "time": 100},
+                {"type": "frame", "time": 800},
+            ],
+        )
+        self.assertIsNone(result["trap"])
+        self.assertTrue(result["finished"])
+        self.assertIn(["frames", True], result["draws"])
+        self.assertIn(["clear", "#0f172a"], result["draws"])
+        sounds = [draw for draw in result["draws"] if draw[0] == "sound"]
+        # The sound starts on the first frame and repeats every 700 ms.
+        self.assertEqual(len(sounds), 2)
+        self.assertAlmostEqual(sounds[0][1], 220.0, places=5)
+        self.assertAlmostEqual(sounds[0][2], 0.4, places=5)
+        self.assertAlmostEqual(sounds[0][3], 0.02, places=5)
+        self.assertAlmostEqual(sounds[0][4], 0.1, places=5)
+        self.assertAlmostEqual(sounds[0][5], 0.5, places=5)
+        self.assertAlmostEqual(sounds[0][6], 0.25, places=5)
+        self.assertAlmostEqual(sounds[0][7], 0.7, places=5)
+        # The game draws its envelope curve and waveform bars.
+        self.assertTrue(any(draw[0] == "line" for draw in result["draws"]))
+        self.assertTrue(any(draw[0] == "rect" for draw in result["draws"]))
 
 
 if __name__ == "__main__":

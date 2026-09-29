@@ -4,8 +4,9 @@
    The page sends {type: "init", sab, runtimePy, indexURL} once, then
    {type: "run", source, filename} to start a Python game,
    {type: "run-odin", wasmBase64, filename, width, height} to start an
-   Odin game, {type: "event", ...} for canvas events and
-   {type: "frame", time} for animation frames.
+   Odin game, {type: "event", ...} for canvas events,
+   {type: "frame", time} for animation frames and
+   {type: "sound", ...} for a sound that the game wants to play.
 
    Python input() and Odin console.input() work the same way: the prompt
    is published with an {type: "input"} message and the game blocks on
@@ -19,7 +20,7 @@
    written, 3 cancelled.
 
    Odin games arrive as precompiled WebAssembly modules that import
-   their screen and input services from the env module and print
+   their screen, sound and input services from the env module and print
    through the odin_env module (which the js_wasm32 target of the Odin
    compiler uses for stdout, stderr and random bytes). */
 
@@ -160,6 +161,14 @@ const gameScreen = {
 };
 globalThis.gameScreen = gameScreen;
 
+/* Called from Python through the audio object of the game runtime. */
+const gameAudio = {
+  play(frequency, duration, attack, decay, sustain, release, volume) {
+    postMessage({ type: "sound", frequency, duration, attack, decay, sustain, release, volume });
+  },
+};
+globalThis.gameAudio = gameAudio;
+
 /* Called from Python (game_input in the runtime) for every input() call. */
 function gamePrompt(promptText) {
   postMessage({ type: "input", prompt: promptText });
@@ -200,6 +209,9 @@ function createOdinEnv(width, height) {
     host_set_key_events(active) { postMessage({ type: "keyevents", active: active !== 0 }); },
     host_set_mouse_click() { /* click events are always forwarded */ },
     host_set_mouse_move() { /* mouse move events are always forwarded */ },
+    host_play_sound(frequency, duration, attack, decay, sustain, release, volume) {
+      postMessage({ type: "sound", frequency, duration, attack, decay, sustain, release, volume });
+    },
     host_input(promptPointer, promptLength, answerPointer, answerCapacity) {
       const promptText = odinReadString(promptPointer, promptLength);
       postMessage({ type: "input", prompt: promptText });

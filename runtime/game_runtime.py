@@ -3,7 +3,7 @@
 This module is embedded into index.html by build.py and executed once
 inside Pyodide when the page loads.  It defines ``run_game``, which the
 page calls to start or restart a game, and the ``input`` function and
-``screen`` object that every game receives in its namespace.
+``audio`` objects that every game receives in its namespace.
 
 The JavaScript module ``js`` must provide:
 
@@ -12,6 +12,8 @@ The JavaScript module ``js`` must provide:
 - ``js.gameScreen`` which draws on the canvas and manages event
   handlers (clear, circle, rect, line, text, setOnMouseClick,
   setOnMouseMove, setOnKeyPress, setOnFrame, width, height).
+- ``js.gameAudio`` which plays synthesized sounds with its play method
+  (frequency, duration, attack, decay, sustain, release, volume).
 """
 
 import linecache
@@ -115,6 +117,39 @@ class Screen:
 SCREEN = Screen()
 
 
+class Audio:
+    """Play short synthesized sounds.
+
+    A ready instance is available to every game as ``audio``.  Every
+    sound is a sawtooth oscillator whose volume follows an ADSR
+    envelope: the volume rises from silence during the attack, falls to
+    the sustain level during the decay, holds there and finally fades to
+    silence during the release.  All durations are in seconds.
+    """
+
+    def play(self, frequency=440.0, duration=0.5, attack=0.01, decay=0.1,
+             sustain=0.6, release=0.2, volume=0.5):
+        """Play one note and show it on the Sound tab of the page.
+
+        frequency is the pitch in Hz, duration the total length in
+        seconds, attack, decay and release the envelope segment lengths
+        in seconds, sustain the envelope level (0..1) that the decay
+        lands on and volume the peak loudness (0..1).
+        """
+        js.gameAudio.play(
+            float(frequency),
+            float(duration),
+            float(attack),
+            float(decay),
+            float(sustain),
+            float(release),
+            float(volume),
+        )
+
+
+AUDIO = Audio()
+
+
 def _game_traceback(exception, filename):
     """Format a traceback showing only frames from the game file."""
     summary = traceback.StackSummary.extract(traceback.walk_tb(exception.__traceback__))
@@ -142,6 +177,7 @@ def run_game(source, filename):
         "__file__": filename,
         "input": game_input,
         "screen": SCREEN,
+        "audio": AUDIO,
     }
     linecache.cache[filename] = (
         len(source),

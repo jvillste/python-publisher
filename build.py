@@ -202,6 +202,7 @@ def watch_build(games_directory: Path, output_file: Path) -> None:
             TEMPLATE_FILE,
             RUNTIME_FILE,
             WORKER_FILE,
+            *sorted(ODIN_RUNTIME_DIRECTORY.glob("*/*.odin")),
             *sorted(
                 path for path in games_directory.iterdir() if path.suffix in GAME_SUFFIXES
             ),

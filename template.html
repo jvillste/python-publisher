@@ -218,6 +218,21 @@
     overflow: auto;
     max-height: 70vh;
   }
+  #soundTab h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin: 0 0 10px 0;
+  }
+  #soundTab canvas {
+    display: block;
+    margin-bottom: 12px;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #060a16;
+    max-width: 100%;
+  }
+  #soundInfo { margin: 0; }
 </style>
 </head>
 <body>
@@ -244,6 +259,7 @@
     <div id="tabs">
       <button id="playTabButton" class="active">Play</button>
       <button id="sourceTabButton">Source code</button>
+      <button id="soundTabButton">Sound</button>
     </div>
     <section id="playTab">
       <div id="playArea">
@@ -259,6 +275,12 @@
     </section>
     <section id="sourceTab" hidden>
       <pre id="sourceView"></pre>
+    </section>
+    <section id="soundTab" hidden>
+      <h2>Sound</h2>
+      <canvas id="envelopeCanvas" width="600" height="190"></canvas>
+      <canvas id="waveformCanvas" width="600" height="190"></canvas>
+      <p id="soundInfo" class="hint"></p>
     </section>
   </main>
 </div>
@@ -283,8 +305,13 @@ const loadStatus = document.getElementById("loadStatus");
 const fallbackNotice = document.getElementById("fallbackNotice");
 const playTab = document.getElementById("playTab");
 const sourceTab = document.getElementById("sourceTab");
+const soundTab = document.getElementById("soundTab");
 const playTabButton = document.getElementById("playTabButton");
 const sourceTabButton = document.getElementById("sourceTabButton");
+const soundTabButton = document.getElementById("soundTabButton");
+const envelopeCanvas = document.getElementById("envelopeCanvas");
+const waveformCanvas = document.getElementById("waveformCanvas");
+const soundInfo = document.getElementById("soundInfo");
 const inputRow = document.getElementById("inputRow");
 const inputBox = document.getElementById("inputBox");
 const fullscreenButton = document.getElementById("fullscreenButton");
@@ -374,6 +401,357 @@ function releaseHandler(handler) {
     /* already destroyed */
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Sound: the games play short synthesized sounds.  Every sound is a  *
+ * sawtooth oscillator whose volume follows an ADSR envelope, and the *
+ * Sound tab visualizes both.                                         *
+ * ------------------------------------------------------------------ */
+
+const DEFAULT_SOUND = {
+  frequency: 440,
+  duration: 0.5,
+  attack: 0.01,
+  decay: 0.1,
+  sustain: 0.6,
+  release: 0.2,
+  volume: 0.5,
+};
+
+let audioContext = null;
+
+function ensureAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioContext;
+}
+
+/* Browsers only allow audio to start after the player has interacted
+   with the page, so create the audio context and unlock it on the
+   first click or key press. */
+document.addEventListener("pointerdown", () => {
+  const context = ensureAudioContext();
+  if (context.state === "suspended") context.resume();
+}, true);
+
+/* The envelope split into segments: attack and decay run first, the
+   sustain level holds for as long as there is time left and release
+   fades the rest.  Segments that would not fit into the duration are
+   scaled down together so the sound always ends in time. */
+function envelopeSegments(sound) {
+  const attack = Math.max(0, sound.attack);
+  const decay = Math.max(0, sound.decay);
+  const release = Math.max(0, sound.release);
+  const sustainLevel = Math.min(1, Math.max(0, sound.sustain));
+  const total = attack + decay + release;
+  const scale = total > sound.duration ? sound.duration / total : 1;
+  return {
+    attack: attack * scale,
+    decay: decay * scale,
+    release: release * scale,
+    sustainLevel,
+    hold: Math.max(0, sound.duration - total * scale),
+  };
+}
+
+/* The envelope shape (0..1) at a point of time of the sound. */
+function envelopeValueAt(sound, seconds) {
+  const segments = envelopeSegments(sound);
+  if (seconds <= 0 || seconds >= sound.duration) return 0;
+  let time = seconds;
+  if (time < segments.attack) {
+    return segments.attack > 0 ? time / segments.attack : 1;
+  }
+  time -= segments.attack;
+  if (time < segments.decay) {
+    return segments.decay > 0 ? 1 + (segments.sustainLevel - 1) * (time / segments.decay) : 1;
+  }
+  time -= segments.decay;
+  if (time < segments.hold) return segments.sustainLevel;
+  time -= segments.hold;
+  if (segments.release > 0) {
+    return segments.sustainLevel * (1 - time / segments.release);
+  }
+  return 0;
+}
+
+/* Play a sound that a game asked for: a sawtooth oscillator whose gain
+   follows the envelope, plus the visualization on the Sound tab. */
+function playSound(message) {
+  const sound = {
+    frequency: message.frequency,
+    duration: message.duration,
+    attack: message.attack,
+    decay: message.decay,
+    sustain: message.sustain,
+    release: message.release,
+    volume: message.volume,
+  };
+  if (!Object.values(sound).every(Number.isFinite) || sound.duration <= 0) return;
+  try {
+    scheduleOscillator(sound);
+  } catch (error) {
+    /* Audio output is unavailable; the Sound tab still shows what the
+       game asked for. */
+  }
+  drawSound(sound);
+}
+
+function scheduleOscillator(sound) {
+  const context = ensureAudioContext();
+  if (context.state === "suspended") context.resume();
+  const segments = envelopeSegments(sound);
+  const volume = Math.min(1, Math.max(0, sound.volume));
+  const start = context.currentTime + 0.02;
+  /* Very short segments are stretched to a minimum so that the ramps
+     stay audible and the sound never stops while the gain is up. */
+  const attack = segments.attack > 0 ? Math.max(segments.attack, 0.002) : 0;
+  const decay = segments.decay > 0 ? Math.max(segments.decay, 0.002) : 0;
+  const release = segments.release > 0 ? Math.max(segments.release, 0.002) : 0;
+  const attackEnd = start + attack;
+  const decayEnd = attackEnd + decay;
+  const holdEnd = decayEnd + segments.hold;
+  const releaseEnd = holdEnd + release;
+  const oscillator = context.createOscillator();
+  oscillator.type = "sawtooth";
+  oscillator.frequency.value = Math.max(0, sound.frequency);
+  const gain = context.createGain();
+  const envelope = gain.gain;
+  envelope.setValueAtTime(attack > 0 ? 0 : volume, start);
+  if (attack > 0) envelope.linearRampToValueAtTime(volume, attackEnd);
+  if (decay > 0) {
+    envelope.linearRampToValueAtTime(volume * segments.sustainLevel, decayEnd);
+  } else {
+    envelope.setValueAtTime(volume * segments.sustainLevel, attackEnd);
+  }
+  envelope.setValueAtTime(volume * segments.sustainLevel, holdEnd);
+  if (release > 0) {
+    envelope.linearRampToValueAtTime(0, releaseEnd);
+  } else {
+    envelope.setValueAtTime(0, holdEnd);
+  }
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(releaseEnd + 0.02);
+}
+
+function describeSound(sound) {
+  const milliseconds = (seconds) => Math.round(seconds * 1000) + " ms";
+  const percent = (value) => Math.round(value * 100) + " %";
+  return (
+    Math.round(sound.frequency) + " Hz saw wave, " + milliseconds(sound.duration) +
+    " — attack " + milliseconds(sound.attack) + ", decay " + milliseconds(sound.decay) +
+    ", sustain " + percent(sound.sustain) + ", release " + milliseconds(sound.release) +
+    ", volume " + percent(sound.volume)
+  );
+}
+
+function drawSound(sound, note) {
+  drawEnvelope(sound);
+  drawWaveform(sound);
+  soundInfo.textContent = (note ? note + " " : "") + describeSound(sound);
+}
+
+function drawEnvelope(sound) {
+  const context = envelopeCanvas.getContext("2d");
+  const width = envelopeCanvas.width;
+  const height = envelopeCanvas.height;
+  context.fillStyle = "#060a16";
+  context.fillRect(0, 0, width, height);
+  const left = 46;
+  const right = width - 14;
+  const top = 26;
+  const bottom = height - 30;
+  const segments = envelopeSegments(sound);
+  const xFor = (seconds) => left + (seconds / sound.duration) * (right - left);
+  const yFor = (shape) => bottom - shape * (bottom - top);
+  context.font = "11px ui-monospace, monospace";
+  context.textAlign = "center";
+  context.textBaseline = "alphabetic";
+  /* Horizontal guides at quarters of the peak volume. */
+  context.strokeStyle = "#1e293b";
+  context.lineWidth = 1;
+  for (const fraction of [0.25, 0.5, 0.75]) {
+    strokeLine(context, left, yFor(fraction), right, yFor(fraction));
+  }
+  context.strokeStyle = "#334155";
+  strokeLine(context, left, bottom, right, bottom);
+  /* The envelope shape: filled area and a solid curve on top. */
+  const curvePoints = [];
+  for (let pixel = 0; pixel <= right - left; pixel += 1) {
+    const seconds = (pixel / (right - left)) * sound.duration;
+    curvePoints.push([left + pixel, yFor(envelopeValueAt(sound, seconds))]);
+  }
+  context.beginPath();
+  context.moveTo(left, bottom);
+  for (const [x, y] of curvePoints) context.lineTo(x, y);
+  context.lineTo(right, bottom);
+  context.closePath();
+  context.fillStyle = "rgba(56, 189, 248, 0.18)";
+  context.fill();
+  context.beginPath();
+  for (const [index, [x, y]] of curvePoints.entries()) {
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  }
+  context.strokeStyle = "#38bdf8";
+  context.lineWidth = 2;
+  context.stroke();
+  /* Dashed guide at the sustain level and at the segment boundaries. */
+  context.strokeStyle = "#64748b";
+  context.setLineDash([4, 4]);
+  const sustainY = yFor(segments.sustainLevel);
+  strokeLine(
+    context,
+    xFor(segments.attack + segments.decay),
+    sustainY,
+    xFor(segments.attack + segments.decay + segments.hold),
+    sustainY
+  );
+  context.strokeStyle = "#1e293b";
+  const boundaries = [
+    segments.attack,
+    segments.attack + segments.decay,
+    segments.attack + segments.decay + segments.hold,
+  ];
+  for (const boundary of boundaries) {
+    strokeLine(context, xFor(boundary), top, xFor(boundary), bottom);
+  }
+  context.setLineDash([]);
+  /* Segment letters above the curve and time marks under the baseline. */
+  context.fillStyle = "#94a3b8";
+  drawSegmentLetter(context, xFor, "A", 0, segments.attack, sound.duration, right - left);
+  drawSegmentLetter(context, xFor, "D", segments.attack, segments.attack + segments.decay, sound.duration, right - left);
+  drawSegmentLetter(
+    context,
+    xFor,
+    "S",
+    segments.attack + segments.decay,
+    segments.attack + segments.decay + segments.hold,
+    sound.duration,
+    right - left
+  );
+  drawSegmentLetter(
+    context,
+    xFor,
+    "R",
+    segments.attack + segments.decay + segments.hold,
+    sound.duration,
+    right - left
+  );
+  context.textAlign = "left";
+  context.fillText("peak", 4, top + 4);
+  context.fillText("0", 20, bottom + 4);
+  context.textAlign = "center";
+  const marks = [
+    { seconds: 0, label: "0" },
+    { seconds: segments.attack, label: String(Math.round(segments.attack * 1000)) },
+    { seconds: segments.attack + segments.decay, label: String(Math.round((segments.attack + segments.decay) * 1000)) },
+    { seconds: segments.attack + segments.decay + segments.hold, label: String(Math.round((segments.attack + segments.decay + segments.hold) * 1000)) },
+    { seconds: sound.duration, label: Math.round(sound.duration * 1000) + " ms" },
+  ];
+  let previousMarkX = -100;
+  for (const mark of marks) {
+    const markX = xFor(mark.seconds);
+    if (markX - previousMarkX < 34) continue;
+    previousMarkX = markX;
+    context.fillText(mark.label, markX, bottom + 14);
+  }
+  context.fillStyle = "#e2e8f0";
+  context.font = "12px system-ui, sans-serif";
+  context.fillText("ADSR envelope", left, 16);
+}
+
+function drawSegmentLetter(context, xFor, letter, startSeconds, endSeconds, duration, plotWidth) {
+  if (((endSeconds - startSeconds) / duration) * plotWidth < 14) return;
+  const center = xFor((startSeconds + endSeconds) / 2);
+  context.fillText(letter, center, 22);
+}
+
+/* Draw the generated waveform: one vertical line per pixel column,
+   spanning the smallest and largest generated sample of the column,
+   with the envelope outline on top to show how it shapes the wave. */
+function drawWaveform(sound) {
+  const context = waveformCanvas.getContext("2d");
+  const width = waveformCanvas.width;
+  const height = waveformCanvas.height;
+  context.fillStyle = "#060a16";
+  context.fillRect(0, 0, width, height);
+  const left = 46;
+  const right = width - 14;
+  const top = 26;
+  const bottom = height - 30;
+  const mid = (top + bottom) / 2;
+  const half = (bottom - top) / 2;
+  /* Very long sounds show their first five seconds. */
+  const shownDuration = Math.min(sound.duration, 5);
+  const scale = Math.max(sound.volume, 0.01);
+  const yFor = (amplitude) => mid - (amplitude / scale) * half;
+  context.font = "11px ui-monospace, monospace";
+  context.textAlign = "left";
+  context.textBaseline = "alphabetic";
+  context.strokeStyle = "#1e293b";
+  context.lineWidth = 1;
+  strokeLine(context, left, yFor(scale), right, yFor(scale));
+  strokeLine(context, left, yFor(-scale), right, yFor(-scale));
+  context.strokeStyle = "#334155";
+  strokeLine(context, left, mid, right, mid);
+  const plotWidth = right - left;
+  const sampleCount = Math.min(200000, Math.max(16, Math.round(44100 * shownDuration)));
+  const samples = waveformSamples(sound, sampleCount, shownDuration);
+  context.strokeStyle = "#fbbf24";
+  context.beginPath();
+  for (let column = 0; column < plotWidth; column += 1) {
+    const first = Math.floor((column * sampleCount) / plotWidth);
+    const last = Math.max(first + 1, Math.floor(((column + 1) * sampleCount) / plotWidth));
+    let minimum = samples[first];
+    let maximum = samples[first];
+    for (let index = first + 1; index < last; index += 1) {
+      minimum = Math.min(minimum, samples[index]);
+      maximum = Math.max(maximum, samples[index]);
+    }
+    if (minimum === 0 && maximum === 0) continue;
+    context.moveTo(left + column + 0.5, yFor(maximum));
+    context.lineTo(left + column + 0.5, yFor(minimum));
+  }
+  context.stroke();
+  context.strokeStyle = "rgba(56, 189, 248, 0.5)";
+  context.beginPath();
+  for (let pixel = 0; pixel <= plotWidth; pixel += 1) {
+    const seconds = (pixel / plotWidth) * shownDuration;
+    const y = yFor(envelopeValueAt(sound, seconds) * scale);
+    if (pixel === 0) context.moveTo(left, y);
+    else context.lineTo(left + pixel, y);
+  }
+  context.stroke();
+  context.fillStyle = "#94a3b8";
+  context.fillText("+peak", 4, yFor(scale) + 4);
+  context.fillText("0", 20, mid + 4);
+  context.fillText("−peak", 4, yFor(-scale) + 4);
+  context.fillStyle = "#e2e8f0";
+  context.font = "12px system-ui, sans-serif";
+  context.fillText("Generated waveform", left, 16);
+}
+
+function waveformSamples(sound, sampleCount, shownDuration) {
+  const samples = new Float32Array(sampleCount);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const seconds = ((index + 0.5) / sampleCount) * shownDuration;
+    const phase = (seconds * sound.frequency) % 1;
+    samples[index] = (2 * phase - 1) * envelopeValueAt(sound, seconds) * sound.volume;
+  }
+  return samples;
+}
+
+function strokeLine(context, x1, y1, x2, y2) {
+  context.beginPath();
+  context.moveTo(x1, y1);
+  context.lineTo(x2, y2);
+  context.stroke();
+}
+
 
 function onRuntimeReady() {
   loadStatus.textContent = "Python ready.";
@@ -466,6 +844,10 @@ const workerRuntime = {
         this.pendingRun = null;
         this.startGame(game);
       }
+      return;
+    }
+    if (message.type === "sound") {
+      playSound(message);
       return;
     }
     if (message.type === "draw") {
@@ -633,6 +1015,13 @@ const gameScreen = {
   },
 };
 globalThis.gameScreen = gameScreen;
+
+/* Called from Python through the audio object of the game runtime. */
+globalThis.gameAudio = {
+  play(frequency, duration, attack, decay, sustain, release, volume) {
+    playSound({ frequency, duration, attack, decay, sustain, release, volume });
+  },
+};
 
 function clearGameState() {
   cancelAnimationFrame(gameState.frameId);
@@ -925,8 +1314,10 @@ function buildGameList() {
 function showTab(name) {
   playTab.hidden = name !== "play";
   sourceTab.hidden = name !== "source";
+  soundTab.hidden = name !== "sound";
   playTabButton.classList.toggle("active", name === "play");
   sourceTabButton.classList.toggle("active", name === "source");
+  soundTabButton.classList.toggle("active", name === "sound");
 }
 
 function updateGameQuery(id) {
@@ -969,6 +1360,8 @@ function setFullscreen(active) {
   exitFullscreenButton.hidden = !active;
   updateFullscreenQuery(active);
   updateFullscreenCanvasSize();
+  /* Full screen hides the tab buttons, so always show the game. */
+  if (active) showTab("play");
   if (active && runtime.pendingInput) inputBox.focus();
 }
 
@@ -1053,6 +1446,8 @@ runButton.addEventListener("click", () => {
 stopButton.addEventListener("click", () => runtime.stop());
 
 buildGameList();
+/* The Sound tab shows the default sound until a game plays one. */
+drawSound(DEFAULT_SOUND, "No game has played a sound yet — this is the default sound.");
 const requestedGame = gameFromQuery();
 if (requestedGame) selectGame(requestedGame.id);
 if (runtime === workerRuntime) {
