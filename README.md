@@ -19,9 +19,8 @@ needed on the player's machine.
   prompt and answer is echoed into the terminal so the whole conversation
   stays readable there.
 - Graphical games draw on the canvas next to the terminal.
-- Games can **play sounds**. When a game plays one, it is synthesized in the
-  browser (a saw wave shaped by an ADSR volume envelope) and the *Sound* tab
-  shows the envelope and the generated waveform of the most recent sound.
+- Games can **play sounds**. When a game plays one, it is synthesized in
+  the browser as a saw wave shaped by an ADSR volume envelope.
 
 ### How the page is opened
 
@@ -173,12 +172,10 @@ import audio "lib:audio"
 audio.play(220, 0.4, 0.02, 0.1, 0.5, 0.25, 0.7)
 ```
 
-The page shows what was played on its **Sound** tab: the ADSR envelope and
-the generated waveform of the most recent sound. Browsers only allow sound
-after the player has interacted with the page, so the first click or key
-press unlocks it. `games/saw_sound.odin` is a complete example: it repeats
-a short saw-wave blip and draws the envelope and the waveform on the game
-canvas itself.
+Browsers only allow sound after the player has interacted with the page,
+so the first click or key press unlocks it. `games/saw_sound.odin` is a
+complete example: it repeats a short saw-wave blip and draws the
+envelope and the waveform on the game canvas itself.
 
 ## Writing Odin games
 

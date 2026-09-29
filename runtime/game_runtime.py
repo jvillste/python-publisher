@@ -129,7 +129,7 @@ class Audio:
 
     def play(self, frequency=440.0, duration=0.5, attack=0.01, decay=0.1,
              sustain=0.6, release=0.2, volume=0.5):
-        """Play one note and show it on the Sound tab of the page.
+        """Play one note.
 
         frequency is the pitch in Hz, duration the total length in
         seconds, attack, decay and release the envelope segment lengths

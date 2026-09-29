@@ -8,7 +8,6 @@
 // sawtooth oscillator whose volume follows an ADSR envelope: the volume
 // rises from silence during the attack, falls to the sustain level during
 // the decay, holds there and finally fades to silence during the release.
-// The page shows the envelope and the generated waveform on its Sound tab.
 package audio
 
 foreign import env "env"
