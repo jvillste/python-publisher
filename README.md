@@ -1,9 +1,11 @@
-# Python game arcade
+# Python & Odin game arcade
 
-A small publishing system for programming students' Python games. It
-generates a single self-contained `index.html` that runs the games right in
-the browser with [Pyodide](https://pyodide.org) (CPython compiled to
-WebAssembly). No installation is needed on the player's machine.
+A small publishing system for programming students' games. It generates a
+single self-contained `index.html` that runs the games right in the
+browser: Python games run with [Pyodide](https://pyodide.org) (CPython
+compiled to WebAssembly) and Odin games run as precompiled
+[Odin](https://odin-lang.org) WebAssembly modules. No installation is
+needed on the player's machine.
 
 ## Using the page
 
@@ -11,12 +13,11 @@ WebAssembly). No installation is needed on the player's machine.
 - **Restart** a game with the *Run / Restart* button (or by picking the game
   again).
 - **Read the source code** of the selected game on the *Source code* tab.
-- Text games `print` into the terminal and ask for commands with `input()`;
-  the answer is typed into the **text box under the terminal** and sent with
-  Enter (or the Send button). Every prompt and answer is echoed into the
-  terminal so the whole conversation stays readable there.
-- The **Stop button** ends a game that waits for input; if a game is stuck
-  computing (looping without input), it restarts the Python runtime.
+- Text games `print` into the terminal and ask for commands with `input()`
+  (Python) or `console.input()` (Odin); the answer is typed into the **text
+  box under the terminal** and sent with Enter (or the Send button). Every
+  prompt and answer is echoed into the terminal so the whole conversation
+  stays readable there.
 - Graphical games draw on the canvas next to the terminal.
 
 ### How the page is opened
@@ -45,17 +46,20 @@ the page is served with two response headers, so:
 | File | Purpose |
 | --- | --- |
 | `build.py` | Generates `index.html` from the template and the games directory. |
-| `template.html` | Page layout, styles and JavaScript runtime (terminal, canvas, Pyodide loader). |
+| `template.html` | Page layout, styles and JavaScript runtime (terminal, canvas, Pyodide loader, Odin module loader). |
 | `runtime/game_runtime.py` | Python glue embedded into the page: the `input` and `screen` APIs and the game runner. |
 | `runtime/game_worker.js` | Web worker that executes the games when the page is cross-origin isolated. |
+| `runtime/odin/` | Odin runtime packages (`screen`, `console`) that every Odin game imports. |
 | `serve.py` | Tiny development server that sends the headers the text-box input needs. |
-| `games/*.py` | The published games. Every `.py` file here becomes a game. |
+| `games/*.py` | The published Python games. Every `.py` file here becomes a game. |
+| `games/*.odin` | The published Odin games. Every `.odin` file here is compiled to WebAssembly at build time. |
 | `index.html` | Generated — do not edit by hand. |
-| `test_build.py`, `test_runtime.py` | Unit tests (`python3 -m unittest`). |
+| `test_build.py`, `test_runtime.py`, `test_odin.py` | Unit tests (`python3 -m unittest`). |
 
 ## Publishing a new game
 
-1. Drop the game into `games/`, e.g. `games/varastopeli.py`.
+1. Drop the game into `games/`, e.g. `games/varastopeli.py` or
+   `games/varastopeli.odin`.
 2. Add a title as the first line (otherwise the file name is used):
 
    ```python
@@ -132,6 +136,71 @@ screen.on_mouse_click(klikkaus)
 screen.clear("black")
 ```
 
+## Writing Odin games
+
+An Odin game is an ordinary Odin package that is compiled to WebAssembly at
+build time. The game defines `main :: proc() {}` and imports the runtime
+packages from `runtime/odin`:
+
+```odin
+// Title: Moikka
+package main
+
+import screen "lib:screen"
+import console "lib:console"
+
+main :: proc() {
+	console.println("Hei maailma!")
+	vastaus, kunnossa := console.input("nimesi: ")
+	if kunnossa do console.println("Moi", vastaus)
+}
+```
+
+`console.print` / `console.println` write into the terminal (like Python's
+`print`), and `console.input(prompt)` returns `(answer, ok)`; `ok` is false
+when the player pressed Stop, which is when the game should exit its loop
+instead of waiting forever.
+
+Graphical Odin games use the `screen` package, which mirrors the Python
+`screen` object. Colors are packed integers, `0xRRGGBB`, instead of CSS
+strings (for example `0xfacc15` instead of `"#facc15"`), and key press
+handlers receive a key code instead of a key name:
+
+| Call | Meaning |
+| --- | --- |
+| `screen.width()`, `screen.height()` | Canvas size in pixels (600 × 400). |
+| `screen.clear(color)` | Fill the whole canvas. |
+| `screen.circle(x, y, radius, color)` | Filled circle. |
+| `screen.rect(x, y, width, height, color)` | Filled rectangle, top left corner (x, y). |
+| `screen.line(x1, y1, x2, y2, color, width = 2)` | Line segment. |
+| `screen.text(x, y, content, color, size = 16)` | Text, top left corner (x, y). |
+| `screen.on_mouse_click(handler)` | Call `handler(x, y)` on click. |
+| `screen.on_mouse_move(handler)` | Call `handler(x, y)` on mouse move. |
+| `screen.on_key_press(handler)` | Call `handler(key_code)` on key press. |
+| `screen.on_frame(handler)` | Call `handler(time_ms)` on every animation frame. |
+
+The handlers are plain procedures, for example `update :: proc(time_ms: i32)`.]
+
+Key codes: single-character keys arrive as their Unicode code point
+(for example `' '` is 32), and special keys use the constants in the
+`screen` package: `Key_Enter`, `Key_Escape`, `Key_Backspace`, `Key_Tab`,
+`Key_Delete`, `Key_Arrow_Left`, `Key_Arrow_Up`, `Key_Arrow_Right`,
+`Key_Arrow_Down`, `Key_Home`, `Key_End`, `Key_Page_Up`, `Key_Page_Down` and
+`Key_Insert`.
+
+`games/demo_odin.odin` (a bouncing ball) and `games/seikkailu_odin.odin`
+(the text adventure of `games/game.py` rewritten in Odin) are complete
+examples.
+
+### Building Odin games needs the Odin compiler
+
+Compiling an `.odin` game needs the `odin` compiler (with the WebAssembly
+linker `lld` and, for the smallest binaries, the `wasm-opt` tool from
+binaryen) on the machine that runs `build.py`. Without them the build
+fails with a clear error and the page is not regenerated; the players
+themselves still need nothing but a browser. Missing optimization tools
+are only a size concern — the build falls back to unoptimized output.
+
 ## Limitations to be aware of
 
 - Text-box input (and the Stop button) require serving the page with
@@ -179,9 +248,9 @@ refresh. A build that fails (for example a game with a syntax error)
 keeps the previous page on disk and the watch keeps running.
 
 The file name in the query is matched case-insensitively, with or without
-the `.py` suffix, and any leading directory is ignored, so `?game=Klikki`
-also works. If no game matches, the page loads without running anything
-and says so in the header.
+the `.py` or `.odin` suffix, and any leading directory is ignored, so
+`?game=Klikki` also works. If no game matches, the page loads without
+running anything and says so in the header.
 
 ### Full screen mode
 
@@ -204,9 +273,15 @@ the full screen canvas, so `input()` games remain playable there too.
 ## Tests
 
 ```sh
-python3 -m unittest test_build test_runtime
+python3 -m unittest test_build test_runtime test_odin
 ```
 
 `test_runtime.py` runs the exact Python code that is embedded into the page
 against a fake `js` module, so the game runner, the `input` dialog bridge
 and the `screen` facade are tested without a browser.
+
+`test_odin.py` compiles the example Odin games and executes them in Node.js
+worker threads with the same import interface that the page uses, so the
+printing, the blocking input protocol (including Stop) and the screen
+bridges are tested without a browser. Both test modules are skipped
+automatically when the tools they need are missing.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Python game arcade</title>
+<title>Python & Odin game arcade</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -222,7 +222,7 @@
 </head>
 <body>
 <header>
-  <h1>&#128026; Python game arcade</h1>
+  <h1>&#128026; Python &amp; Odin game arcade</h1>
   <span id="loadStatus">Loading Python, please wait&hellip;</span>
 </header>
 <div id="layout">
@@ -505,11 +505,21 @@ const workerRuntime = {
     appendTerminal("--- Running " + game.filename + " ---", "status");
     applyDraw("clear", ["#000000"]);
     this.setFrameLoop(false);
-    this.worker.postMessage({
-      type: "run",
-      source: game.source,
-      filename: game.filename,
-    });
+    if (game.kind === "odin") {
+      this.worker.postMessage({
+        type: "run-odin",
+        wasmBase64: game.wasm_base64,
+        filename: game.filename,
+        width: canvas.width,
+        height: canvas.height,
+      });
+    } else {
+      this.worker.postMessage({
+        type: "run",
+        source: game.source,
+        filename: game.filename,
+      });
+    }
   },
 
   submitInput() {
@@ -633,6 +643,164 @@ function clearGameState() {
   applyDraw("clear", ["#000000"]);
 }
 
+/* ------------------------------------------------------------------ *
+ * Odin helpers for the fallback runtime: the WebAssembly modules run *
+ * on the main thread, draw straight to the canvas and cannot block   *
+ * on input (Atomics.wait is not allowed on the main thread).         *
+ * ------------------------------------------------------------------ */
+
+function decodeBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function odinColor(color) {
+  return "#" + (color & 0xffffff).toString(16).padStart(6, "0");
+}
+
+/* Special key codes for Odin key press handlers; must match the Key_*
+   constants in runtime/odin/screen/screen.odin. */
+const ODIN_SPECIAL_KEYS = {
+  Enter: 13,
+  Escape: 27,
+  Backspace: 8,
+  Tab: 9,
+  Delete: 46,
+  ArrowLeft: 1000,
+  ArrowUp: 1001,
+  ArrowRight: 1002,
+  ArrowDown: 1003,
+  Home: 1036,
+  End: 1035,
+  PageUp: 1033,
+  PageDown: 1034,
+  Insert: 1045,
+};
+
+function keyToOdinCode(key) {
+  if (Object.prototype.hasOwnProperty.call(ODIN_SPECIAL_KEYS, key)) {
+    return ODIN_SPECIAL_KEYS[key];
+  }
+  if (key.length === 1) return key.codePointAt(0);
+  return -1;
+}
+
+const odinMainThread = {
+  instance: null,
+  outputBuffer: "",
+};
+
+function odinReadString(instance, pointer, length) {
+  if (length <= 0) return "";
+  const bytes = new Uint8Array(instance.exports.memory.buffer, pointer, length);
+  return new TextDecoder().decode(bytes);
+}
+
+function odinFlushOutput() {
+  if (odinMainThread.outputBuffer) {
+    appendTerminal(odinMainThread.outputBuffer, "output");
+    odinMainThread.outputBuffer = "";
+  }
+}
+
+function describeOdinCrash(error) {
+  const lines = [];
+  if (odinMainThread.outputBuffer) {
+    lines.push(odinMainThread.outputBuffer);
+    odinMainThread.outputBuffer = "";
+  }
+  lines.push(String(error.message ?? error));
+  return lines.join("\n");
+}
+
+function odinFinish(status, message) {
+  odinFlushOutput();
+  if (message) {
+    appendTerminal(message, status === "error" ? "error" : "status");
+  }
+  hideInputRow();
+  /* A finished game keeps its instance: event-driven games register
+     their handlers and return, and the handlers must keep working.  A
+     crashed game is dead — drop the instance. */
+  if (status === "error") odinMainThread.instance = null;
+}
+
+function odinBridge(name, ...args) {
+  const instance = odinMainThread.instance;
+  if (!instance) return;
+  const bridge = instance.exports[name];
+  if (!bridge) return;
+  try {
+    bridge(...args);
+  } catch (error) {
+    odinFinish("error", describeOdinCrash(error));
+  }
+}
+
+/* The env and odin_env modules of a running Odin game. */
+function createOdinImports(holder) {
+  return {
+    env: {
+      host_clear(color) { applyDraw("clear", [odinColor(color)]); },
+      host_circle(x, y, radius, color) { applyDraw("circle", [x, y, radius, odinColor(color)]); },
+      host_rect(x, y, width, height, color) { applyDraw("rect", [x, y, width, height, odinColor(color)]); },
+      host_line(x1, y1, x2, y2, color, lineWidth) { applyDraw("line", [x1, y1, x2, y2, odinColor(color), lineWidth]); },
+      host_text(x, y, contentPointer, contentLength, color, size) {
+        applyDraw("text", [x, y, odinReadString(holder.instance, contentPointer, contentLength), odinColor(color), size]);
+      },
+      host_width() { return canvas.width; },
+      host_height() { return canvas.height; },
+      host_set_frames(active) {
+        cancelAnimationFrame(gameState.frameId);
+        gameState.onFrame = active ? (timeMs) => odinBridge("screen_frame", timeMs) : null;
+        if (active) {
+          const loop = (timeMs) => {
+            callHandler(gameState.onFrame, timeMs);
+            gameState.frameId = requestAnimationFrame(loop);
+          };
+          gameState.frameId = requestAnimationFrame(loop);
+        }
+      },
+      host_set_key_events(active) {
+        gameState.onKeyPress = active ? (key) => odinBridge("screen_key_press", keyToOdinCode(key)) : null;
+      },
+      host_set_mouse_click(active) {
+        gameState.onMouseClick = active ? (x, y) => odinBridge("screen_mouse_click", x, y) : null;
+      },
+      host_set_mouse_move(active) {
+        gameState.onMouseMove = active ? (x, y) => odinBridge("screen_mouse_move", x, y) : null;
+      },
+      host_input() {
+        throw new Error(
+          "This Odin game asks for input, which needs the text-box mode. " +
+          "Serve the page with python3 serve.py and open it over HTTP."
+        );
+      },
+    },
+    odin_env: {
+      write(fileDescriptor, pointer, length) {
+        if (length <= 0) return;
+        odinMainThread.outputBuffer += odinReadString(holder.instance, pointer, length);
+        let newlineAt = odinMainThread.outputBuffer.indexOf("\n");
+        while (newlineAt !== -1) {
+          const line = odinMainThread.outputBuffer.slice(0, newlineAt);
+          odinMainThread.outputBuffer = odinMainThread.outputBuffer.slice(newlineAt + 1);
+          if (line) appendTerminal(line, "output");
+          newlineAt = odinMainThread.outputBuffer.indexOf("\n");
+        }
+      },
+      rand_bytes(pointer, length) {
+        const memory = new Uint8Array(holder.instance.exports.memory.buffer);
+        crypto.getRandomValues(memory.subarray(pointer, pointer + length));
+      },
+    },
+  };
+}
+
 const mainThreadRuntime = {
   mode: "fallback",
   pyodide: null,
@@ -679,10 +847,30 @@ const mainThreadRuntime = {
     clearGameState();
     clearTerminal();
     appendTerminal("--- Running " + game.filename + " ---", "status");
+    if (game.kind === "odin") {
+      this.startOdinGame(game);
+      return;
+    }
     const result = this.runGameFunction(game.source, game.filename);
     const [status, message] = result.toJs();
     result.destroy();
     showGameDone(status, message);
+  },
+
+  startOdinGame(game) {
+    const holder = { instance: null };
+    const imports = createOdinImports(holder);
+    WebAssembly.compile(decodeBase64(game.wasm_base64))
+      .then((module) => WebAssembly.instantiate(module, imports))
+      .then((instance) => {
+        holder.instance = instance;
+        odinMainThread.instance = instance;
+        instance.exports._start();
+        if (odinMainThread.instance) odinFinish("finished", "");
+      })
+      .catch((error) => {
+        odinFinish("error", describeOdinCrash(error));
+      });
   },
 
   stop() { /* not available while Python runs on the main thread */ },
@@ -832,7 +1020,7 @@ function gameFromQuery() {
   const wanted = new URLSearchParams(window.location.search).get("game");
   if (!wanted) return null;
   const name = wanted.trim().toLowerCase().replace(/^.*[\\/]/, "");
-  const stem = name.replace(/\.py$/, "");
+  const stem = name.replace(/\.(py|odin)$/, "");
   const game = GAMES.find((candidate) => {
     const id = candidate.id.toLowerCase();
     const filename = candidate.filename.toLowerCase();
